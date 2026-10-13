@@ -8,15 +8,15 @@ use serde_json::{json, Value};
 use crate::{Shared, hqplayer, ffmpeg::FfmpegStream, station::Station};
 
 pub fn run(address: &str, state: Shared, running: Arc<AtomicBool>) -> io::Result<()> {
-    let listener = TcpListener::bind(address)?;
+    let listener = TcpListener::bind("0.0.0.0:8765")?;
     listener.set_nonblocking(true)?;
-    eprintln!("[PeteRadioPlayer] RAW HTTP/1.0 audio + GUI ready at http://{address}/");
+    eprintln!("[RadioKing Live] RAW HTTP/1.0 audio + GUI ready at http://{address}/");
     while running.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((socket, _)) => {
                 let s = state.clone();
                 thread::spawn(move || {
-                    if let Err(e) = handle(socket, s) { eprintln!("[PeteRadioPlayer] request: {e}"); }
+                    if let Err(e) = handle(socket, s) { eprintln!("[RadioKing Live] request: {e}"); }
                 });
             }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(20)),
@@ -37,7 +37,8 @@ fn snapshot(state: &Shared) -> Value {
     let s = state.lock().unwrap();
     json!({"stations": s.stations.iter().enumerate().map(|(i,st)|json!({"id":i,"name":st.name,"group":st.group})).collect::<Vec<_>>(),
         "selected":s.selected,"generation":s.generation,"playing":s.playing,
-        "connected":s.connected,"message":s.message,"bytes":s.last_bytes,"retries":s.retry_count})
+        "connected":s.connected,"message":s.message,"bytes":s.last_bytes,"retries":s.retry_count,
+        "phase":s.phase,"hq_host":s.hq_host,"hq_targets":s.hq_targets.iter().map(|(host,label)|json!({"host":host,"label":label})).collect::<Vec<_>>()})
 }
 fn decode(s: &str) -> String {
     let bytes=s.as_bytes(); let mut out=Vec::new(); let mut i=0;
@@ -65,21 +66,33 @@ fn play(state: &Shared, index: usize) -> Result<(),String> {
         if index>=s.stations.len() {return Err("Unknown station".into());}
         s.selected=index;s.generation+=1;generation=s.generation;
         s.playing=true;s.connected=false;s.retry_count=0;s.last_bytes=0;
-        s.message=format!("Connecting to {}…",s.stations[index].name);
+        s.message=format!("Validating {}…",s.stations[index].name);s.phase="validating".into();
     }
     // Preflight the selected upstream, avoiding HQPlayer decoding an empty stream.
     // FFmpeg's input timeout is bounded by the child watchdog below.
     let station={let s=state.lock().unwrap();s.stations[index].clone()};
     if let Err(e)=preflight(&station) {
         let mut s=state.lock().unwrap();
-        if s.generation==generation {s.playing=false;s.message=format!("Source unavailable: {e}");}
+        if s.generation==generation {s.playing=false;s.phase="error".into();s.message=format!("Source unavailable: {e}");}
         return Err(format!("Source unavailable: {e}"));
     }
-    let _=hqplayer::stop();
-    let uri=format!("http://127.0.0.1:8765/live.flac?g={generation}");
-    if let Err(e)=hqplayer::play(&uri) {
+    let host={let mut s=state.lock().unwrap();
+        if s.generation!=generation {return Err("Playback request superseded".into());}
+        s.phase="starting".into();s.message="Starting HQPlayer…".into();s.hq_host.clone()};
+    let source_host=match hqplayer::stream_host(&host) {
+        Ok(h)=>h,
+        Err(e)=>{
+            let message=format!("Cannot route stream to {host}: {e}");
+            let mut s=state.lock().unwrap();
+            if s.generation==generation {s.playing=false;s.phase="error".into();s.message=message.clone();}
+            return Err(message);
+        }
+    };
+    let _=hqplayer::stop(&host);
+    let uri=format!("http://{source_host}:8765/live.flac?g={generation}");
+    if let Err(e)=hqplayer::play(&host,&uri) {
         let mut s=state.lock().unwrap();
-        if s.generation==generation {s.playing=false;s.message=format!("HQPlayer control failed: {e}");}
+        if s.generation==generation {s.playing=false;s.phase="error".into();s.message=format!("HQPlayer control failed: {e}");}
         return Err(format!("HQPlayer control failed: {e}"));
     }
     Ok(())
@@ -119,8 +132,23 @@ fn preflight(station: &Station) -> Result<(), String> {
 }
 
 fn stop(state: &Shared) -> Result<(),String> {
-    {let mut s=state.lock().unwrap();s.generation+=1;s.playing=false;s.connected=false;s.retry_count=0;s.message="Stopped".into();}
-    hqplayer::stop().map_err(|e|e.to_string())
+    let host={let mut s=state.lock().unwrap();s.generation+=1;s.playing=false;s.connected=false;s.retry_count=0;s.phase="stopping".into();s.message="Stopping…".into();s.hq_host.clone()};
+    let result=hqplayer::stop(&host).map_err(|e|e.to_string());
+    let mut s=state.lock().unwrap();s.phase=if result.is_ok(){"idle"}else{"error"}.into();
+    s.message=if result.is_ok(){"Stopped".into()}else{format!("Stop failed: {}",result.as_ref().unwrap_err())};
+    result
+}
+fn select_hq(state:&Shared,host:&str)->Result<(),String>{
+    if host.is_empty() || host.len()>255 || !host.chars().all(|c|c.is_ascii_alphanumeric()||c=='.'||c=='-') {return Err("Invalid HQPlayer host".into());}
+    if !hqplayer::reachable(host) {return Err(format!("HQPlayer control port unreachable at {host}:4321"));}
+    if hqplayer::info(host).is_none() {return Err(format!("HQPlayer control handshake failed at {host}"));}
+    let old={let s=state.lock().unwrap();s.hq_host.clone()};
+    if old==host {return Ok(());}
+    {let mut s=state.lock().unwrap();s.generation+=1;s.playing=false;s.connected=false;s.phase="switching".into();s.message="Switching HQPlayer…".into();}
+    let _=hqplayer::stop(&old);
+    let mut s=state.lock().unwrap();s.hq_host=host.into();s.phase="idle".into();s.message=format!("HQPlayer selected: {host}");
+    if !s.hq_targets.iter().any(|(h,_)|h==host){s.hq_targets.push((host.into(),format!("{} · manually added",host)));}
+    Ok(())
 }
 fn search(term: &str) -> Result<Vec<Value>,String> {
     if term.trim().len()<2 {return Err("Enter at least two characters".into());}
@@ -128,7 +156,7 @@ fn search(term: &str) -> Result<Vec<Value>,String> {
     // Radio Browser is federated; try several mirrors instead of relying on one.
     for host in ["de1.api.radio-browser.info","nl1.api.radio-browser.info","at1.api.radio-browser.info"] {
         let url=format!("https://{host}/json/stations/search?name={encoded}&limit=40&hidebroken=true&order=votes&reverse=true");
-        let output=Command::new("/usr/bin/curl").args(["-fLsS","--connect-timeout","4","--max-time","9","-A","PeteRadioPlayer/0.3.2",&url]).output();
+        let output=Command::new("/usr/bin/curl").args(["-fLsS","--connect-timeout","4","--max-time","9","-A","RadioKing Live/0.3.2",&url]).output();
         if let Ok(o)=output {
             if o.status.success() {
                 if let Ok(Value::Array(items))=serde_json::from_slice::<Value>(&o.stdout) {
@@ -161,12 +189,27 @@ fn handle(mut socket: TcpStream, state: Shared) -> io::Result<()> {
     let line=String::from_utf8_lossy(&request).lines().next().unwrap_or("").to_owned();
     let mut parts=line.split_whitespace();
     let method=parts.next().unwrap_or("");let path=parts.next().unwrap_or("");
+    // The HTTP GUI and control endpoints remain localhost-only. Remote HQPlayer
+    // instances may access only the FLAC endpoint over the LAN.
+    let is_audio=path.starts_with("/live.flac");
+    if !is_audio && !socket.peer_addr()?.ip().is_loopback() {
+        return reply(socket,"403 Forbidden","text/plain",b"Local control only");
+    }
     if method=="HEAD" && path.starts_with("/live.flac") {
         return socket.write_all(b"HTTP/1.0 200 OK\r\nContent-Type: audio/flac\r\nConnection: close\r\n\r\n");
     }
     if method=="GET" && path.starts_with("/live.flac") {return stream_audio(socket,state,path);}
     if method=="GET" && path=="/" {return reply(socket,"200 OK","text/html; charset=utf-8",include_bytes!("index.html"));}
     if method=="GET" && path=="/api/status" {return json_reply(socket,snapshot(&state));}
+    if method=="POST" && path.starts_with("/api/hq/select") {
+        let host=param(path,"host").unwrap_or_default();
+        return json_reply(socket,match select_hq(&state,&host){Ok(())=>json!({"ok":true}),Err(e)=>json!({"ok":false,"error":e})});
+    }
+    if method=="POST" && path=="/api/hq/refresh" {
+        let shared=state.clone();
+        thread::spawn(move || {let targets=hqplayer::discover();let mut s=shared.lock().unwrap();s.hq_targets=targets;});
+        return json_reply(socket,json!({"ok":true}));
+    }
     if method=="POST" && path.starts_with("/api/play") {
         let id=param(path,"id").and_then(|s|s.parse::<usize>().ok()).unwrap_or(usize::MAX);
         return json_reply(socket,match play(&state,id){Ok(())=>json!({"ok":true}),Err(e)=>json!({"ok":false,"error":e})});
@@ -196,7 +239,7 @@ fn stream_audio(mut socket: TcpStream, state: Shared, path: &str) -> io::Result<
     socket.set_read_timeout(None)?;
     // Known-good 0.2.1 wire protocol: HTTP/1.0, raw FLAC, no chunked encoding.
     socket.write_all(b"HTTP/1.0 200 OK\r\nContent-Type: audio/flac\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n")?;
-    eprintln!("[PeteRadioPlayer] live GET: {} (generation {generation})",station.name);
+    eprintln!("[RadioKing Live] live GET: {} (generation {generation})",station.name);
     let mut ffmpeg=match FfmpegStream::start(&station) {
         Ok(p)=>p,
         Err(e)=>{record_failure(&state,generation,format!("FFmpeg start failed: {e}"));return Ok(());}
@@ -210,13 +253,13 @@ fn stream_audio(mut socket: TcpStream, state: Shared, path: &str) -> io::Result<
                 if let Err(e)=socket.write_all(&buf[..n]) {break format!("client disconnected: {e}");}
                 bytes+=n as u64;
                 if bytes<16384||bytes%262144<(n as u64) {
-                    let mut s=state.lock().unwrap();if s.generation==generation{s.connected=true;s.last_bytes=bytes;s.message=format!("Live — {}",station.name);}
+                    let mut s=state.lock().unwrap();if s.generation==generation{s.connected=true;s.phase="playing".into();s.last_bytes=bytes;s.message=format!("Live — {}",station.name);}
                 }
             }
             Err(e)=>break format!("FFmpeg pipe error: {e}"),
         }
     };
-    eprintln!("[PeteRadioPlayer] FLAC stream ended ({bytes} bytes): {reason}");
+    eprintln!("[RadioKing Live] FLAC stream ended ({bytes} bytes): {reason}");
     // Unexpected EOF or lost socket is not always a server fault. Retry is bounded.
     let active={let s=state.lock().unwrap();s.playing&&s.generation==generation};
     if active {record_failure(&state,generation,reason);}
@@ -226,10 +269,10 @@ fn record_failure(state: &Shared, generation: u64, reason: String) {
     let (retry, index)={
         let mut s=state.lock().unwrap();
         if !s.playing||s.generation!=generation{return;}
-        s.connected=false;s.retry_count+=1;
+        s.connected=false;s.phase="reconnecting".into();s.retry_count+=1;
         let retry=s.retry_count;
         s.message=if retry<=3 {format!("Stream interrupted ({reason}); retry {retry}/3…")}else{format!("Playback failed after 3 retries: {reason}. Press Play to retry.")};
-        if retry>3 {s.playing=false;return;}
+        if retry>3 {s.playing=false;s.phase="error".into();return;}
         (retry,s.selected)
     };
     let shared=state.clone();
@@ -239,9 +282,11 @@ fn record_failure(state: &Shared, generation: u64, reason: String) {
         if !still_active{return;}
         // Retain retry budget when initiating an automatic recovery.
         let next={let mut s=shared.lock().unwrap();s.generation+=1;s.generation};
-        let _=hqplayer::stop();
-        let uri=format!("http://127.0.0.1:8765/live.flac?g={next}");
-        if let Err(e)=hqplayer::play(&uri) {record_failure(&shared,next,format!("HQPlayer reconnect: {e}"));}
+        let host=shared.lock().unwrap().hq_host.clone();
+        let source_host=match hqplayer::stream_host(&host) {Ok(h)=>h,Err(e)=>{record_failure(&shared,next,format!("Route failure: {e}"));return;}};
+        let _=hqplayer::stop(&host);
+        let uri=format!("http://{source_host}:8765/live.flac?g={next}");
+        if let Err(e)=hqplayer::play(&host,&uri) {record_failure(&shared,next,format!("HQPlayer reconnect: {e}"));}
         else {let mut s=shared.lock().unwrap();if s.generation==next{s.selected=index;}}
     });
 }

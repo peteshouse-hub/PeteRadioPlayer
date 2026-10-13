@@ -10,7 +10,7 @@ pub struct FfmpegStream {
 
 impl FfmpegStream {
     pub fn start(station: &Station) -> io::Result<Self> {
-        eprintln!("[PeteRadioPlayer] FFmpeg: {} -> FLAC 48 kHz stereo", station.name);
+        eprintln!("[RadioKing Live] FFmpeg: {} -> FLAC 48 kHz stereo", station.name);
 
         let mut child = Command::new("/opt/homebrew/bin/ffmpeg")
             .args([

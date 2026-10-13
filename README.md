@@ -1,8 +1,8 @@
-# PeteRadioPlayer — Live Edition
+# RadioKing Live
 
 A lightweight, local macOS radio interface that streams BBC and worldwide radio through **HQPlayer Desktop**, using FFmpeg to decode incoming audio into lossless FLAC over localhost HTTP.
 
-**Release:** v0.3.2 (listening-tested on the original developer’s Mac; not a broadly validated release).
+**Development build:** v0.4.0-alpha.4. Previous stable release: PeteRadioPlayer v0.3.2.
 
 ## Features
 
@@ -16,7 +16,7 @@ A lightweight, local macOS radio interface that streams BBC and worldwide radio 
 
 - macOS on Apple Silicon; Rust/Cargo
 - FFmpeg at `/opt/homebrew/bin/ffmpeg`
-- HQPlayer Desktop running locally, with `hqp6-control` at `/Applications/hqp6-control.app/Contents/MacOS/hqp6-control`
+- HQPlayer Desktop running locally or on a reachable LAN host, with `hqp6-control` at `/Applications/hqp6-control.app/Contents/MacOS/hqp6-control`
 - Network connectivity; audio output configured in HQPlayer
 
 ## Run
@@ -39,7 +39,7 @@ The app does not add DSP, normalization, or resampling. Source audio may already
 - Preflight checks initial decodability, not long-term reliability.
 - A source that hangs without terminating is not yet covered by a full watchdog.
 - Radio Browser entries are community-maintained and may be broken or unsuitable.
-- The localhost HTTP server is intended for local use, not exposure to untrusted networks.
+- The GUI is loopback-only; remote FLAC delivery requires TCP 8765 access on a trusted LAN.
 
 ## Development policy
 
@@ -47,10 +47,14 @@ Live Edition v0.3.2 is the stable baseline for the planned separate **PeteRadioP
 
 ## Licensing
 
-**Licence selection pending.** No open-source licence is granted by this repository until a licence file is added. Choose an appropriate licence before making the repository public or accepting contributions.
+MIT; see LICENSE. HQPlayer and FFmpeg are external dependencies with their own licences.
 
 ## Acknowledgements
 
 BBC stream directory reference: https://github.com/groupmsl/BBCRadioStreams
 
 Worldwide station directory: https://www.radio-browser.info/
+
+## Alpha.4 native macOS launcher
+
+The `.app` now contains a minimal Swift/AppKit executable (`RadioKingLive`) which owns the normal macOS application event loop. It starts the unchanged Rust streaming server (`Contents/Resources/RadioKingServer`) and opens the browser interface. Clicking the Dock icon reopens the browser UI; quitting the app sends SIGINT to the Rust server for its existing HQPlayer shutdown path. Running `cargo run` directly retains the earlier browser-opening behaviour. Requires Xcode Command Line Tools (`swiftc`) to package on macOS.
