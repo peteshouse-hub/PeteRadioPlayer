@@ -238,6 +238,20 @@ pub struct Limits {
     pub aligned: Option<i64>,
 }
 
+impl Limits {
+    pub fn recovery_delay(&self, delay: i64) -> Option<i64> {
+        if (self.min..=self.max).contains(&delay) {
+            return None;
+        }
+        let margin = 300.min((self.max - self.min) / 2);
+        Some(if delay > self.max {
+            self.max - margin
+        } else {
+            self.min + margin
+        })
+    }
+}
+
 fn limits(playlist: &str, now: DateTime<Utc>) -> Result<Limits> {
     let segments = parse_playlist(playlist)?;
     let buffered_start = segments
@@ -296,7 +310,8 @@ pub fn start(manifest: &str, delay: i64) -> Result<FfmpegStream> {
         "-hide_banner",
         "-nostdin",
         "-loglevel",
-        "warning",
+        "info",
+        "-nostats",
         "-xerror",
         "-re",
     ]);
@@ -325,6 +340,7 @@ pub fn start(manifest: &str, delay: i64) -> Result<FfmpegStream> {
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()?;
     let mut input = child.stdin.take().expect("piped FFmpeg input");
     let playback = FfmpegStream::from_child(child)?;
@@ -360,6 +376,26 @@ mod tests {
 
     fn utc(value: &str) -> DateTime<Utc> {
         value.parse().unwrap()
+    }
+
+    #[test]
+    fn recovery_stays_inside_the_window() {
+        let wide = Limits {
+            min: 20,
+            max: 21_600,
+            aligned: None,
+        };
+        assert_eq!(wide.recovery_delay(21_601), Some(21_300));
+        assert_eq!(wide.recovery_delay(19), Some(320));
+        assert_eq!(wide.recovery_delay(21_600), None);
+
+        let short = Limits {
+            min: 20,
+            max: 120,
+            aligned: None,
+        };
+        assert_eq!(short.recovery_delay(200), Some(70));
+        assert_eq!(short.recovery_delay(1), Some(70));
     }
 
     #[test]

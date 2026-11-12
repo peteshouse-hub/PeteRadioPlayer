@@ -2,7 +2,7 @@
 
 A lightweight, local macOS radio interface that streams BBC and worldwide radio through **HQPlayer Desktop**, using FFmpeg to decode incoming audio into lossless FLAC over localhost HTTP.
 
-**Development build:** v0.4.0-alpha.10. Previous stable release: PeteRadioPlayer v0.3.2.
+**Development build:** v0.4.0-alpha.11. Previous stable release: PeteRadioPlayer v0.3.2.
 
 ## Features
 
@@ -57,11 +57,11 @@ Select **Default Mac Output** from the **Output** menu to use the audio device s
 
 ## BBC Rewind
 
-Choose **Live** on a built-in BBC station to hear the London programme scheduled for the current Toronto wall-clock time. Set the delay to zero to hear the current broadcast. The player shows Toronto time, the estimated London programme time, and the applied shift. Rewind is available for the 12 built-in BBC stations. Worldwide search results use live playback.
+Choose **Live** to hear the current broadcast. Choose **Rewind** on a built-in BBC station to hear the London programme scheduled for the current Toronto wall-clock time. The player shows Toronto time, the estimated London programme time, and the applied shift. Rewind is available for the 12 built-in BBC stations. Worldwide search results use live playback.
 
-For a BBC station, drag the **Time shift** slider to tune to a specific delay. **Back** and **Forward** move the programme by one or five minutes. Each adjustment retunes the stream. The slider ranges from live to 24 hours behind. RadioKing displays the station’s currently available history and validates the requested delay before retuning. Playback continues at the current delay if the requested programme is outside that history.
+For a BBC station, drag the **Time shift** slider to tune to a specific delay. **Back** and **Forward** move the programme by one or five minutes. Each adjustment retunes the stream. The slider ranges from the station’s available rewind limit on the left to live on the right. RadioKing refreshes the window while the page is open. It also monitors active rewind playback and retunes five minutes inside the nearest edge if the current delay falls outside the window. For windows shorter than ten minutes, it retunes to the midpoint. RadioKing validates the requested delay before retuning. Playback continues at the current delay if the requested programme is outside that history.
 
-The shift is usually five hours and falls to four when the UK and Canada are on different daylight-saving schedules. RadioKing retains the starting shift during playback and follows HLS media sequences. Select Live on the station again to recalculate it after a clock change. RadioKing uses the later occurrence of an ambiguous London time and reports an error for a nonexistent London time or when the requested programme is outside the CDN's rolling window. Startup buffering and HQPlayer latency can put audio slightly behind the displayed programme time.
+The shift is usually five hours and falls to four when the UK and Canada are on different daylight-saving schedules. RadioKing retains the starting shift during playback and follows HLS media sequences. Select Rewind on the station again to recalculate it after a clock change. RadioKing uses the later occurrence of an ambiguous London time and reports an error for a nonexistent London time or when the requested programme is outside the CDN's rolling window. Startup buffering and HQPlayer latency can put audio slightly behind the displayed programme time.
 
 ## Audio architecture
 

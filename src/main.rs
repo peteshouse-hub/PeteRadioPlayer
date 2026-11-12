@@ -21,6 +21,7 @@ pub struct State {
     pub connected: bool,
     pub message: String,
     pub last_bytes: u64,
+    pub stream_stats: serde_json::Value,
     pub retry_count: u32,
     pub hq_host: String,
     pub mac_player: Option<std::process::Child>,
@@ -35,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("RadioKing {} — BBC + World Explorer", env!("CARGO_PKG_VERSION"));
     let state: Shared = Arc::new(Mutex::new(State {
         stations: bbc(), selected: 0, generation: 0, playing: false,
-        connected: false, message: "Ready — choose a station".into(), last_bytes: 0,
+        connected: false, message: "Ready — choose a station".into(), last_bytes: 0, stream_stats: serde_json::Value::Null,
         retry_count: 0, hq_host: if platform::HQPLAYER { "127.0.0.1" } else { MAC_OUTPUT }.into(),
         mac_player: None, hq_targets: Vec::new(), phase: "idle".into(), rewind_delay: None,
     }));

@@ -39,7 +39,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>RadioKing</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.4.0</string>
-<key>CFBundleVersion</key><string>0.4.0a10</string>
+<key>CFBundleVersion</key><string>0.4.0a11</string>
 <key>CFBundleIconFile</key><string>RadioKing</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
@@ -50,7 +50,7 @@ PLIST
 /usr/bin/codesign --verify --deep --strict "$APP"
 
 if [[ "${1:-}" == --package ]]; then
-  ZIP="$SOURCE_DIR/target/RadioKing-v0.4.0-alpha.10-macOS-$(uname -m).zip"
+  ZIP="$SOURCE_DIR/target/RadioKing-v0.4.0-alpha.11-macOS-$(uname -m).zip"
   /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" "$STAGING/release.zip"
   mv -f "$STAGING/release.zip" "$ZIP"
   echo "Created: $ZIP"

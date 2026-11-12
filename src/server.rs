@@ -11,6 +11,9 @@ use crate::{MAC_OUTPUT, Shared, platform, rewind, ffmpeg::FfmpegStream, station:
 
 pub fn run(listener: TcpListener, state: Shared, running: Arc<AtomicBool>) -> io::Result<()> {
     listener.set_nonblocking(true)?;
+    let monitor_state = state.clone();
+    let monitor_running = running.clone();
+    thread::spawn(move || watch_rewind_window(&monitor_state, &monitor_running));
     eprintln!("[RadioKing] RAW HTTP/1.0 audio + GUI ready at http://127.0.0.1:8765/");
     while running.load(Ordering::SeqCst) {
         match listener.accept() {
@@ -38,7 +41,7 @@ fn snapshot(state: &Shared) -> Value {
     let s = state.lock().unwrap();
     json!({"stations": s.stations.iter().enumerate().map(|(i,st)|json!({"id":i,"name":st.name,"group":st.group,"rewind":st.rewind_url.is_some()})).collect::<Vec<_>>(),
         "selected":s.selected,"generation":s.generation,"playing":s.playing,
-        "connected":s.connected,"message":s.message,"bytes":s.last_bytes,"retries":s.retry_count,
+        "stream_stats":s.connected.then_some(&s.stream_stats),"connected":s.connected,"message":s.message,"bytes":s.last_bytes,"retries":s.retry_count,
         "phase":s.phase,"rewind_delay":s.rewind_delay.filter(|_| s.playing),"hq_supported":platform::HQPLAYER,"system_output":platform::SYSTEM_OUTPUT,"hq_host":s.hq_host,"hq_targets":s.hq_targets.iter().map(|(host,label)|json!({"host":host,"label":label})).collect::<Vec<_>>()})
 }
 fn decode(s: &str) -> String {
@@ -419,7 +422,7 @@ fn stream_audio(mut socket: TcpStream, state: Shared, path: &str) -> io::Result<
                 if let Err(e)=socket.write_all(&buf[..n]) {break format!("client disconnected: {e}");}
                 bytes+=n as u64;
                 if bytes<16384||bytes%262144<(n as u64) {
-                    let mut s=state.lock().unwrap();if s.generation==generation{s.connected=true;s.phase="playing".into();s.last_bytes=bytes;s.message=format!("{} — {}",if delay.is_some() {"Rewind"} else {"Live"},station.name);}
+                    let mut s=state.lock().unwrap();if s.generation==generation{s.connected=true;s.phase="playing".into();s.last_bytes=bytes;s.stream_stats=ffmpeg.stats();s.message=format!("{} — {}",if delay.is_some() {"Rewind"} else {"Live"},station.name);}
                 }
             }
             Err(e)=>break format!("FFmpeg pipe error: {e}"),
@@ -431,6 +434,51 @@ fn stream_audio(mut socket: TcpStream, state: Shared, path: &str) -> io::Result<
     if active {record_failure(&state,generation,reason);}
     Ok(())
 }
+fn rewind_window_adjustment(state: &Shared, generation: u64, phase: &str) -> Option<i64> {
+    let (url, delay) = {
+        let s = state.lock().unwrap();
+        if !s.playing || s.generation != generation || s.phase != phase {
+            return None;
+        }
+        (s.stations[s.selected].rewind_url.clone()?, s.rewind_delay?)
+    };
+    rewind::available_limits(&url).ok()?.recovery_delay(delay)
+}
+
+fn watch_rewind_window(state: &Shared, running: &AtomicBool) {
+    while running.load(Ordering::SeqCst) {
+        thread::sleep(Duration::from_secs(15));
+        if !running.load(Ordering::SeqCst) { break; }
+        let generation = state.lock().unwrap().generation;
+        if let Some(delay) = rewind_window_adjustment(state, generation, "playing")
+            && running.load(Ordering::SeqCst)
+        {
+            restart_output(state, generation, "playing", Some(delay));
+        }
+    }
+}
+
+fn restart_output(state: &Shared, generation: u64, phase: &str, adjusted_delay: Option<i64>) {
+    let (next, output) = {
+        let mut s = state.lock().unwrap();
+        if !s.playing || s.generation != generation || s.phase != phase { return; }
+        stop_mac_player(&mut s);
+        if let Some(delay) = adjusted_delay {
+            eprintln!("[RadioKing] Rewind window moved; resuming {delay} seconds behind live");
+            s.rewind_delay = Some(delay);
+            s.message = "Rewind window moved. Retuning…".into();
+        }
+        s.generation += 1;
+        s.connected = false;
+        s.last_bytes = 0;
+        s.phase = "starting".into();
+        (s.generation, s.hq_host.clone())
+    };
+    if let Err(error) = start_output(state, next, &output) {
+        record_failure(state, next, format!("Output reconnect: {error}"));
+    }
+}
+
 fn record_failure(state: &Shared, generation: u64, reason: String) {
     let retry={
         let mut s=state.lock().unwrap();
@@ -445,16 +493,7 @@ fn record_failure(state: &Shared, generation: u64, reason: String) {
     let shared=state.clone();
     thread::spawn(move||{
         thread::sleep(Duration::from_secs(2u64.pow(retry.min(3))));
-        let (next, host) = {
-            let mut s = shared.lock().unwrap();
-            if !s.playing || s.generation != generation { return; }
-            // Retain the retry budget and rewind delay across automatic recovery.
-            s.generation += 1;
-            s.phase = "starting".into();
-            (s.generation, s.hq_host.clone())
-        };
-        if let Err(error) = start_output(&shared, next, &host) {
-            record_failure(&shared, next, format!("Output reconnect: {error}"));
-        }
+        let delay = rewind_window_adjustment(&shared, generation, "reconnecting");
+        restart_output(&shared, generation, "reconnecting", delay);
     });
 }
