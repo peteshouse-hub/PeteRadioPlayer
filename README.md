@@ -2,7 +2,7 @@
 
 A lightweight, local macOS radio interface that streams BBC and worldwide radio through **HQPlayer Desktop**, using FFmpeg to decode incoming audio into lossless FLAC over localhost HTTP.
 
-**Development build:** v0.4.0-alpha.5. Previous stable release: PeteRadioPlayer v0.3.2.
+**Development build:** v0.4.0-alpha.6. Previous stable release: PeteRadioPlayer v0.3.2.
 
 ## Features
 
@@ -32,6 +32,12 @@ cargo run --release
 ```
 
 The application launches a local browser interface. It is not an independent audio player: HQPlayer is required and is **not** bundled. FFmpeg and HQPlayer are separate third-party software governed by their respective licences.
+
+## BBC Rewind
+
+Choose **Rewind** on a built-in BBC station to hear the London programme scheduled for the current Toronto wall-clock time. Choose **Live** to return to the current broadcast. The player shows Toronto time, the estimated London programme time, and the applied shift. Rewind is available for the 12 built-in BBC stations. Worldwide search results use live playback.
+
+The shift is usually five hours and falls to four when the UK and Canada are on different daylight-saving schedules. RadioKing retains the starting shift during playback and follows HLS media sequences. Retune to recalculate it after a clock change. RadioKing uses the later occurrence of an ambiguous London time and reports an error for a nonexistent London time or when the requested programme is outside the CDN's rolling window. Startup buffering and HQPlayer latency can put audio slightly behind the displayed programme time.
 
 ## Audio architecture
 

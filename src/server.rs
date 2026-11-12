@@ -5,7 +5,7 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
 use std::time::Duration;
 use serde_json::{json, Value};
-use crate::{Shared, hqplayer, ffmpeg::FfmpegStream, station::Station};
+use crate::{Shared, hqplayer, rewind, ffmpeg::FfmpegStream, station::Station};
 
 pub fn run(address: &str, state: Shared, running: Arc<AtomicBool>) -> io::Result<()> {
     let listener = TcpListener::bind("0.0.0.0:8765")?;
@@ -35,10 +35,10 @@ fn json_reply(socket: TcpStream, data: Value) -> io::Result<()> {
 }
 fn snapshot(state: &Shared) -> Value {
     let s = state.lock().unwrap();
-    json!({"stations": s.stations.iter().enumerate().map(|(i,st)|json!({"id":i,"name":st.name,"group":st.group})).collect::<Vec<_>>(),
+    json!({"stations": s.stations.iter().enumerate().map(|(i,st)|json!({"id":i,"name":st.name,"group":st.group,"rewind":st.rewind_url.is_some()})).collect::<Vec<_>>(),
         "selected":s.selected,"generation":s.generation,"playing":s.playing,
         "connected":s.connected,"message":s.message,"bytes":s.last_bytes,"retries":s.retry_count,
-        "phase":s.phase,"hq_host":s.hq_host,"hq_targets":s.hq_targets.iter().map(|(host,label)|json!({"host":host,"label":label})).collect::<Vec<_>>()})
+        "phase":s.phase,"rewind_delay":s.rewind_delay.filter(|_| s.playing),"hq_host":s.hq_host,"hq_targets":s.hq_targets.iter().map(|(host,label)|json!({"host":host,"label":label})).collect::<Vec<_>>()})
 }
 fn decode(s: &str) -> String {
     let bytes=s.as_bytes(); let mut out=Vec::new(); let mut i=0;
@@ -59,25 +59,39 @@ fn param<'a>(path: &'a str, name: &str) -> Option<String> {
         (key==name).then(||decode(value))
     })
 }
-fn play(state: &Shared, index: usize) -> Result<(),String> {
-    let generation;
+fn play(state: &Shared, index: usize, use_rewind: bool) -> Result<(),String> {
+    let (generation, station);
     {
         let mut s=state.lock().unwrap();
         if index>=s.stations.len() {return Err("Unknown station".into());}
+        station=s.stations[index].clone();
+        if use_rewind && station.rewind_url.is_none() {
+            return Err("Rewind is unavailable for this station".into());
+        }
+        s.rewind_delay=None;
         s.selected=index;s.generation+=1;generation=s.generation;
         s.playing=true;s.connected=false;s.retry_count=0;s.last_bytes=0;
         s.message=format!("Validating {}…",s.stations[index].name);s.phase="validating".into();
     }
     // Preflight the selected upstream, avoiding HQPlayer decoding an empty stream.
     // FFmpeg's input timeout is bounded by the child watchdog below.
-    let station={let s=state.lock().unwrap();s.stations[index].clone()};
-    if let Err(e)=preflight(&station) {
-        let mut s=state.lock().unwrap();
-        if s.generation==generation {s.playing=false;s.phase="error".into();s.message=format!("Source unavailable: {e}");}
-        return Err(format!("Source unavailable: {e}"));
-    }
+    let preflight_result = if use_rewind {
+        rewind::validate(station.rewind_url.as_deref().expect("verified rewind URL"))
+            .map(Some).map_err(|error| format!("Rewind unavailable: {error}"))
+    } else {
+        preflight(&station).map(|()| None)
+    };
+    let delay = match preflight_result {
+        Ok(delay) => delay,
+        Err(e) => {
+            let mut s=state.lock().unwrap();
+            if s.generation==generation {s.playing=false;s.phase="error".into();s.message=format!("Source unavailable: {e}");}
+            return Err(format!("Source unavailable: {e}"));
+        }
+    };
     let host={let mut s=state.lock().unwrap();
         if s.generation!=generation {return Err("Playback request superseded".into());}
+        s.rewind_delay=delay;
         s.phase="starting".into();s.message="Starting HQPlayer…".into();s.hq_host.clone()};
     let source_host=match hqplayer::stream_host(&host) {
         Ok(h)=>h,
@@ -212,7 +226,7 @@ fn handle(mut socket: TcpStream, state: Shared) -> io::Result<()> {
     }
     if method=="POST" && path.starts_with("/api/play") {
         let id=param(path,"id").and_then(|s|s.parse::<usize>().ok()).unwrap_or(usize::MAX);
-        return json_reply(socket,match play(&state,id){Ok(())=>json!({"ok":true}),Err(e)=>json!({"ok":false,"error":e})});
+        return json_reply(socket,match play(&state,id,param(path,"mode").as_deref()==Some("rewind")){Ok(())=>json!({"ok":true}),Err(e)=>json!({"ok":false,"error":e})});
     }
     if method=="POST" && path.starts_with("/api/stop") {
         return json_reply(socket,match stop(&state){Ok(())=>json!({"ok":true}),Err(e)=>json!({"ok":false,"error":e})});
@@ -227,7 +241,7 @@ fn handle(mut socket: TcpStream, state: Shared) -> io::Result<()> {
         if name.trim().is_empty() || !(url.starts_with("https://")||url.starts_with("http://")) || url.len()>2048 {
             return json_reply(socket,json!({"ok":false,"error":"Invalid station name or stream URL"}));
         }
-        let id={let mut s=state.lock().unwrap();let id=s.stations.len();s.stations.push(Station{name,source_url:url,group:"World".into()});id};
+        let id={let mut s=state.lock().unwrap();let id=s.stations.len();s.stations.push(Station{name,source_url:url,group:"World".into(),rewind_url:None});id};
         return json_reply(socket,json!({"ok":true,"id":id}));
     }
     reply(socket,"404 Not Found","text/plain",b"Not found")
@@ -235,12 +249,16 @@ fn handle(mut socket: TcpStream, state: Shared) -> io::Result<()> {
 
 fn stream_audio(mut socket: TcpStream, state: Shared, path: &str) -> io::Result<()> {
     let generation=param(path,"g").and_then(|s|s.parse::<u64>().ok()).unwrap_or(0);
-    let station={let s=state.lock().unwrap();if !s.playing||s.generation!=generation{return reply(socket,"410 Gone","text/plain",b"Old stream");}s.stations[s.selected].clone()};
+    let (station, delay)={let s=state.lock().unwrap();if !s.playing||s.generation!=generation{return reply(socket,"410 Gone","text/plain",b"Old stream");}(s.stations[s.selected].clone(),s.rewind_delay)};
     socket.set_read_timeout(None)?;
     // Known-good 0.2.1 wire protocol: HTTP/1.0, raw FLAC, no chunked encoding.
     socket.write_all(b"HTTP/1.0 200 OK\r\nContent-Type: audio/flac\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n")?;
     eprintln!("[RadioKing] live GET: {} (generation {generation})",station.name);
-    let mut ffmpeg=match FfmpegStream::start(&station) {
+    let playback = match (delay, station.rewind_url.as_deref()) {
+        (Some(delay), Some(url)) => rewind::start(url, delay),
+        _ => FfmpegStream::start(&station).map_err(Into::into),
+    };
+    let mut ffmpeg=match playback {
         Ok(p)=>p,
         Err(e)=>{record_failure(&state,generation,format!("FFmpeg start failed: {e}"));return Ok(());}
     };
@@ -253,7 +271,7 @@ fn stream_audio(mut socket: TcpStream, state: Shared, path: &str) -> io::Result<
                 if let Err(e)=socket.write_all(&buf[..n]) {break format!("client disconnected: {e}");}
                 bytes+=n as u64;
                 if bytes<16384||bytes%262144<(n as u64) {
-                    let mut s=state.lock().unwrap();if s.generation==generation{s.connected=true;s.phase="playing".into();s.last_bytes=bytes;s.message=format!("Live — {}",station.name);}
+                    let mut s=state.lock().unwrap();if s.generation==generation{s.connected=true;s.phase="playing".into();s.last_bytes=bytes;s.message=format!("{} — {}",if delay.is_some() {"Rewind"} else {"Live"},station.name);}
                 }
             }
             Err(e)=>break format!("FFmpeg pipe error: {e}"),
@@ -278,11 +296,13 @@ fn record_failure(state: &Shared, generation: u64, reason: String) {
     let shared=state.clone();
     thread::spawn(move||{
         thread::sleep(Duration::from_secs(2u64.pow(retry.min(3))));
-        let still_active={let s=shared.lock().unwrap();s.playing&&s.generation==generation};
-        if !still_active{return;}
-        // Retain retry budget when initiating an automatic recovery.
-        let next={let mut s=shared.lock().unwrap();s.generation+=1;s.generation};
-        let host=shared.lock().unwrap().hq_host.clone();
+        let (next, host) = {
+            let mut s = shared.lock().unwrap();
+            if !s.playing || s.generation != generation { return; }
+            // Retain the retry budget and rewind delay across automatic recovery.
+            s.generation += 1;
+            (s.generation, s.hq_host.clone())
+        };
         let source_host=match hqplayer::stream_host(&host) {Ok(h)=>h,Err(e)=>{record_failure(&shared,next,format!("Route failure: {e}"));return;}};
         let _=hqplayer::stop(&host);
         let uri=format!("http://{source_host}:8765/live.flac?g={next}");

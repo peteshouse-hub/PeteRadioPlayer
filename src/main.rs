@@ -1,4 +1,5 @@
 mod ffmpeg;
+mod rewind;
 mod hqplayer;
 mod station;
 mod server;
@@ -21,6 +22,7 @@ pub struct State {
     pub hq_host: String,
     pub hq_targets: Vec<(String,String)>,
     pub phase: String,
+    pub rewind_delay: Option<i64>,
 }
 
 pub type Shared = Arc<Mutex<State>>;
@@ -31,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stations: bbc(), selected: 0, generation: 0, playing: false,
         connected: false, message: "Ready — choose a station".into(), last_bytes: 0,
         retry_count: 0, hq_host: "127.0.0.1".into(),
-        hq_targets: Vec::new(), phase: "idle".into(),
+        hq_targets: Vec::new(), phase: "idle".into(), rewind_delay: None,
     }));
     let running = Arc::new(AtomicBool::new(true));
     let signal = running.clone();

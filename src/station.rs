@@ -1,5 +1,5 @@
 #[derive(Clone, Debug)]
-pub struct Station { pub name: String, pub source_url: String, pub group: String }
+pub struct Station { pub name: String, pub source_url: String, pub group: String, pub rewind_url: Option<String> }
 
 pub fn bbc() -> Vec<Station> {
     // Explicit worldwide endpoints from the maintained BBCRadioStreams list.
@@ -14,11 +14,14 @@ pub fn bbc() -> Vec<Station> {
         ("BBC Radio 6 Music", "http://as-hls-ww-live.akamaized.net/pool_81827798/live/ww/bbc_6music/bbc_6music.isml/bbc_6music-audio%3d96000.norewind.m3u8"),
         ("BBC Radio 1Xtra", "http://as-hls-ww-live.akamaized.net/pool_92079267/live/ww/bbc_1xtra/bbc_1xtra.isml/bbc_1xtra-audio%3d96000.norewind.m3u8"),
         ("BBC Asian Network", "http://as-hls-ww-live.akamaized.net/pool_22108647/live/ww/bbc_asian_network/bbc_asian_network.isml/bbc_asian_network-audio%3d96000.norewind.m3u8"),
-        ("BBC Radio Wales", "http://as-hls-ww-live.akamaized.net/pool_904/live/ww/bbc_radio_wales_fm/bbc_radio_wales_fm.isml/bbc_radio_wales_fm-audio%3d96000.norewind.m3u8"),
-        ("BBC Radio Ulster", "http://as-hls-ww-live.akamaized.net/pool_904/live/ww/bbc_radio_ulster/bbc_radio_ulster.isml/bbc_radio_ulster-audio%3d96000.norewind.m3u8"),
-        ("BBC World Service", "http://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/bbc_world_service.m3u8"),
+        ("BBC Radio Wales", "http://as-hls-ww-live.akamaized.net/pool_97517794/live/ww/bbc_radio_wales_fm/bbc_radio_wales_fm.isml/bbc_radio_wales_fm-audio%3d96000.norewind.m3u8"),
+        ("BBC Radio Ulster", "http://as-hls-ww-live.akamaized.net/pool_31244774/live/ww/bbc_radio_ulster/bbc_radio_ulster.isml/bbc_radio_ulster-audio%3d96000.norewind.m3u8"),
+        ("BBC World Service", "https://as-hls-ww-live.akamaized.net/pool_87948813/live/ww/bbc_world_service/bbc_world_service.isml/bbc_world_service-audio%3d96000.norewind.m3u8"),
     ];
     feeds.into_iter().map(|(name,url)| Station {
-        name: name.into(), source_url: url.into(), group: "BBC".into()
+        name: name.into(),
+        source_url: url.into(),
+        group: "BBC".into(),
+        rewind_url: Some(url.replacen("http:", "https:", 1).replace(".norewind.m3u8", ".m3u8")),
     }).collect()
 }

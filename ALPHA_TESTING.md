@@ -1,4 +1,4 @@
-# RadioKing 0.4.0-alpha.5
+# RadioKing 0.4.0-alpha.6
 
 Development branch: `live-v0.4`. **Do not replace the released v0.3.2 app yet.**
 
@@ -51,7 +51,7 @@ Or run from an extracted ZIP directory without touching the Git working tree.
 
 Quit any running player on TCP 8765. Extract the release ZIP and open `RadioKing.app`. To install from source, run `./install-app.sh`. The source installer preserves an existing `RadioKing.app` as `RadioKing (previous alpha).app`. An existing `RadioKing Live.app` can be kept for rollback.
 
-## Alpha.5 regression checklist
+## Alpha.6 regression checklist
 
 1. Quit the previous RadioKing app, verify port 8765 is free.
 2. Run `./install-app.sh`, then `open "$HOME/Applications/RadioKing.app"`.

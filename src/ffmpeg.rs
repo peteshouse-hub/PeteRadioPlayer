@@ -12,7 +12,7 @@ impl FfmpegStream {
     pub fn start(station: &Station) -> io::Result<Self> {
         eprintln!("[RadioKing] FFmpeg: {} -> FLAC 48 kHz stereo", station.name);
 
-        let mut child = Command::new("/opt/homebrew/bin/ffmpeg")
+        let child = Command::new("/opt/homebrew/bin/ffmpeg")
             .args([
                 "-hide_banner",
                 "-loglevel", "warning",
@@ -29,6 +29,10 @@ impl FfmpegStream {
             .stderr(Stdio::inherit())
             .spawn()?;
 
+        Self::from_child(child)
+    }
+
+    pub(crate) fn from_child(mut child: Child) -> io::Result<Self> {
         let stdout = child.stdout.take()
             .ok_or_else(|| io::Error::other("FFmpeg stdout unavailable"))?;
 
