@@ -59,10 +59,26 @@ fn param<'a>(path: &'a str, name: &str) -> Option<String> {
         (key==name).then(||decode(value))
     })
 }
-fn play(state: &Shared, index: usize, use_rewind: bool) -> Result<(),String> {
+fn play(state: &Shared, index: usize, use_rewind: bool, requested_delay: Option<i64>) -> Result<(),String> {
+    let custom_delay = if let Some(delay) = requested_delay {
+        let (manifest, generation) = {
+            let s = state.lock().unwrap();
+            let url = s.stations.get(index).and_then(|station| station.rewind_url.clone())
+                .ok_or("Rewind is unavailable for this station")?;
+            (url, s.generation)
+        };
+        let delay = rewind::validate(&manifest, Some(delay))
+            .map_err(|error| format!("Rewind unavailable: {error}"))?;
+        Some((delay, generation))
+    } else {
+        None
+    };
     let (generation, station);
     {
         let mut s=state.lock().unwrap();
+        if custom_delay.is_some_and(|(_, previous)| s.generation != previous) {
+            return Err("Playback request superseded".into());
+        }
         if index>=s.stations.len() {return Err("Unknown station".into());}
         station=s.stations[index].clone();
         if use_rewind && station.rewind_url.is_none() {
@@ -76,8 +92,10 @@ fn play(state: &Shared, index: usize, use_rewind: bool) -> Result<(),String> {
     }
     // Preflight the selected upstream, avoiding HQPlayer decoding an empty stream.
     // FFmpeg's input timeout is bounded by the child watchdog below.
-    let preflight_result = if use_rewind {
-        rewind::validate(station.rewind_url.as_deref().expect("verified rewind URL"))
+    let preflight_result = if let Some((delay, _)) = custom_delay {
+        Ok(Some(delay))
+    } else if use_rewind {
+        rewind::validate(station.rewind_url.as_deref().expect("verified rewind URL"), None)
             .map(Some).map_err(|error| format!("Rewind unavailable: {error}"))
     } else {
         preflight(&station).map(|()| None)
@@ -315,9 +333,32 @@ fn handle(mut socket: TcpStream, state: Shared) -> io::Result<()> {
         thread::spawn(move || {let targets=hqplayer::discover();let mut s=shared.lock().unwrap();s.hq_targets=targets;});
         return json_reply(socket,json!({"ok":true}));
     }
+    if method=="GET" && path.split('?').next()==Some("/api/rewind/limits") {
+        let index=param(path,"id").and_then(|value| value.parse::<usize>().ok());
+        let manifest = {
+            let s = state.lock().unwrap();
+            index.and_then(|id| s.stations.get(id)).and_then(|station| station.rewind_url.clone())
+        };
+        let result = match manifest {
+            Some(url) => match rewind::available_limits(&url) {
+                Ok(limits) => json!({"ok":true,"min":limits.min,"max":limits.max,"aligned":limits.aligned}),
+                Err(error) => json!({"ok":false,"error":error.to_string()}),
+            },
+            None => json!({"ok":false,"error":"Rewind is unavailable for this station"}),
+        };
+        return json_reply(socket,result);
+    }
     if method=="POST" && path.starts_with("/api/play") {
         let id=param(path,"id").and_then(|s|s.parse::<usize>().ok()).unwrap_or(usize::MAX);
-        return json_reply(socket,match play(&state,id,param(path,"mode").as_deref()==Some("rewind")){Ok(())=>json!({"ok":true}),Err(e)=>json!({"ok":false,"error":e})});
+        let use_rewind=param(path,"mode").as_deref()==Some("rewind");
+        let requested_delay=match param(path,"delay") {
+            Some(value) => match value.parse::<i64>() {
+                Ok(delay) if use_rewind && delay > 0 => Some(delay),
+                _ => return json_reply(socket,json!({"ok":false,"error":"Enter a positive rewind delay in seconds"})),
+            },
+            None => None,
+        };
+        return json_reply(socket,match play(&state,id,use_rewind,requested_delay){Ok(())=>json!({"ok":true}),Err(e)=>json!({"ok":false,"error":e})});
     }
     if method=="POST" && path.starts_with("/api/stop") {
         return json_reply(socket,match stop(&state){Ok(())=>json!({"ok":true}),Err(e)=>json!({"ok":false,"error":e})});

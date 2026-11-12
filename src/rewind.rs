@@ -165,17 +165,24 @@ impl Source {
         sequence: u64,
         expected_start: DateTime<Utc>,
     ) -> Result<(Vec<u8>, DateTime<Utc>)> {
-        if self.refreshed.elapsed() >= REFRESH {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let segment = loop {
+            if self.refreshed.elapsed() >= REFRESH {
+                self.refresh()?;
+            }
+            let playlist = parse_playlist(&self.manifest)?;
+            let index = sequence
+                .checked_sub(playlist[0].sequence)
+                .ok_or("next segment has expired")?;
+            if let Some(segment) = playlist.into_iter().nth(usize::try_from(index)?) {
+                break segment;
+            }
+            if Instant::now() >= deadline {
+                return Err("next segment is beyond the playlist".into());
+            }
+            thread::sleep(Duration::from_secs(1));
             self.refresh()?;
-        }
-        let playlist = parse_playlist(&self.manifest)?;
-        let first = playlist[0].sequence;
-        let index = sequence
-            .checked_sub(first)
-            .ok_or("next segment has expired")?;
-        let segment = playlist
-            .get(usize::try_from(index)?)
-            .ok_or("next segment is beyond the playlist")?;
+        };
         if segment.start != expected_start {
             return Err(format!(
                 "sequence {sequence} starts at {}, expected {expected_start}",
@@ -221,16 +228,58 @@ fn retry<T>(mut fetch: impl FnMut() -> Result<T>) -> Result<T> {
 fn cursor(playlist: &str, target: DateTime<Utc>) -> Result<(u64, DateTime<Utc>)> {
     let segments = parse_playlist(playlist)?;
     let segment = select_segment(&segments, target)
-        .ok_or("Toronto programme time is outside the available rewind window")?;
+        .ok_or("Requested programme time is outside the available rewind window")?;
     Ok((segment.sequence, segment.start))
 }
 
-pub fn validate(manifest: &str) -> Result<i64> {
+pub struct Limits {
+    pub min: i64,
+    pub max: i64,
+    pub aligned: Option<i64>,
+}
+
+fn limits(playlist: &str, now: DateTime<Utc>) -> Result<Limits> {
+    let segments = parse_playlist(playlist)?;
+    let buffered_start = segments
+        .get(
+            segments
+                .len()
+                .checked_sub(LOOKAHEAD)
+                .ok_or("Too few segments to buffer rewind")?,
+        )
+        .ok_or("Too few segments to buffer rewind")?;
+    // Leave room for startup buffering and for the playlist to advance between requests.
+    let min = ((now - buffered_start.end).num_seconds() + 7).max(1);
+    let max = (now - segments[0].start).num_seconds() - 15;
+    if max < min {
+        return Err("The available rewind window is too short".into());
+    }
+    let aligned = playback_target(now)
+        .ok()
+        .map(|target| (now - target).num_seconds());
+    Ok(Limits { min, max, aligned })
+}
+
+pub fn available_limits(manifest: &str) -> Result<Limits> {
+    let source = Source::open(manifest)?;
+    limits(&source.manifest, Utc::now())
+}
+
+pub fn validate(manifest: &str, requested: Option<i64>) -> Result<i64> {
     let source = Source::open(manifest)?;
     let now = Utc::now();
-    let target = playback_target(now)?;
-    cursor(&source.manifest, target)?;
-    Ok((now - target).num_seconds())
+    let delay = match requested {
+        Some(delay) => {
+            let limits = limits(&source.manifest, now)?;
+            if !(limits.min..=limits.max).contains(&delay) {
+                return Err("Requested delay is outside the available rewind window".into());
+            }
+            delay
+        }
+        None => (now - playback_target(now)?).num_seconds(),
+    };
+    cursor(&source.manifest, now - TimeDelta::seconds(delay))?;
+    Ok(delay)
 }
 
 pub fn start(manifest: &str, delay: i64) -> Result<FfmpegStream> {

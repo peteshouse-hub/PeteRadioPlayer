@@ -1,7 +1,8 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RadioKing</title><style>
 :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#10151c;color:#e8edf4}*{box-sizing:border-box}body{margin:0}.app{max-width:1200px;margin:auto;padding:28px}header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #35404d;padding-bottom:18px}h1{font-size:24px;letter-spacing:-.6px;margin:0}h1 span{color:#78c8ef}h2{font-size:17px;margin:0 0 18px}small,.muted{color:#a0afbd}.badge{font-size:11px;color:#89e3c0;border:1px solid #386858;border-radius:20px;padding:5px 10px}.layout{display:grid;grid-template-columns:360px 1fr;gap:22px;margin-top:24px}.panel{background:#19222c;border:1px solid #2b3946;border-radius:14px;padding:22px}.now{grid-column:1/-1;display:flex;justify-content:space-between;gap:20px;align-items:center;background:linear-gradient(120deg,#213749,#1a2632)}.now h2{font-size:28px;margin:6px 0}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:#89c3de}.controls{display:flex;gap:10px}button{background:#283b4b;color:#e9f5fb;border:1px solid #446074;border-radius:9px;padding:10px 14px;font-weight:600;cursor:pointer}button:hover{background:#35546b}button:active{transform:translateY(1px);filter:brightness(1.2)}button:focus-visible,select:focus-visible{outline:2px solid #78c8ef;outline-offset:2px}.spinner{display:inline-block;width:12px;height:12px;border:2px solid #6a8494;border-top-color:#a6e4ff;border-radius:50%;animation:spin .7s linear infinite;margin-right:8px}@keyframes spin{to{transform:rotate(360deg)}}select{background:#111a23;color:#e8edf4;border:1px solid #435261;border-radius:9px;padding:9px;max-width:100%}.hqbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:16px 0 0}.hqbar label{color:#a0afbd;font-size:13px}.hqtip{width:100%;margin-top:1px;font-size:12px;line-height:1.45;color:#8fa6b6}.hqtip strong{color:#b9d7e8}.phase{font-size:12px;letter-spacing:.7px;color:#a5d9f4;text-transform:uppercase}button.primary{background:#3c98c7;border-color:#3c98c7;color:#061722}button:disabled{opacity:.5;cursor:wait}input{width:100%;padding:12px;background:#111a23;border:1px solid #435261;color:white;border-radius:9px;margin-bottom:12px}#stations{max-height:490px;overflow:auto}.station{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #293947;padding:11px 2px;gap:12px}.station strong{font-size:14px}.station small{display:block;margin-top:4px}.station button{padding:7px 12px}.active strong{color:#79c9f2}.tabs{display:flex;gap:8px;margin-bottom:18px}.tabs button.selected{background:#3b657e}.result{padding:12px 0;border-bottom:1px solid #2a3a49;display:flex;align-items:center;justify-content:space-between;gap:10px}.result strong{font-size:14px}.result small{display:block;margin-top:4px}.status{color:#bdd2df;font-size:13px;margin-top:10px}.error{color:#ffab9d}footer{margin-top:22px;color:#8e9dab;font-size:12px}.hint{font-size:13px;line-height:1.6;color:#a5b7c4}@media(max-width:800px){.layout{grid-template-columns:1fr}.now{flex-direction:column;align-items:flex-start}.app{padding:16px}}
 #clocks{margin:16px 0 0;font-variant-numeric:tabular-nums}#clocks:not([hidden]){display:flex;flex-wrap:wrap;gap:12px 20px}#clocks dt{font-size:.75rem}#clocks dd{margin:4px 0 0;font-weight:600}.station-actions{display:flex;gap:6px;align-items:center}
-</style></head><body><div class="app"><header><h1>Radio<span>King</span></h1></header><div class="hqbar"><label for="hq">Output</label><select id="hq" onchange="selectHQ()"><option value="">Select output</option><option value="@mac">Default Mac Output</option></select><button id="refreshHQ" onclick="refreshHQ()">↻ Discover</button><input id="manualHQ" style="width:170px;margin:0;padding:9px" placeholder="Host / IPv4 address"><button id="addHQ" onclick="manualHQ()">Connect</button><small id="hqInfo">Searching local network…</small><div class="hqtip"><strong>Tip:</strong> To use HQPlayer Desktop on another computer, enable <strong>Allow control from network</strong> in HQPlayer Desktop.</div></div><div class="layout"><section class="panel now"><div><div class="eyebrow">Now tuned to</div><h2 id="current">BBC Radio 4</h2><div class="phase" id="phase">Idle</div><div class="status" id="status" role="status" aria-live="polite">Ready</div><small id="bytes"></small><dl id="clocks" hidden><div><dt>Toronto time</dt><dd id="torontoTime"></dd></div><div><dt>London programme</dt><dd id="londonTime"></dd></div><div><dt>Time shift</dt><dd id="timeShift"></dd></div></dl></div><div class="controls"><button id="playBtn" class="primary" onclick="playSelected()">▶ Play</button><button id="stopBtn" onclick="stop()">■ Stop</button></div></section><section class="panel"><h2>BBC Radio</h2><div class="hint">International (ww) BBC streams are preferred. Radio 4 is verified; other services may still be unavailable or geographically restricted.</div><div id="stations"></div></section><section class="panel"><h2>Explore the world</h2><div class="hint">Search the community-maintained Radio Browser directory by station name. Results depend on the station's current stream availability.</div><div style="display:flex;gap:8px;margin-top:15px"><input id="search" placeholder="Station, genre or broadcaster…" onkeydown="if(event.key==='Enter')search()"><button id="searchBtn" onclick="search()" style="height:43px">Search</button></div><div id="results" class="hint">Try “SomaFM”, “Jazz”, “France”, or “Radio Paradise”.</div></section></div><footer>Rust audio engine · local-only interface · FFmpeg lossless FLAC bridge · HQPlayer → NAA<br>Automatic recovery: up to three retries with backoff. Station availability and geographic restrictions vary.</footer></div><script>
+#shiftControls{border:0;padding:0;margin:16px 0 0;min-width:0}#shiftControls legend{font-weight:600;padding:0}#shiftRange{display:block;width:100%;margin:10px 0;accent-color:#70b5ff}.shift-steps{display:flex;gap:6px;flex-wrap:wrap}#shiftLimit{display:block;margin-top:8px}
+</style></head><body><div class="app"><header><h1>Radio<span>King</span></h1></header><div class="hqbar"><label for="hq">Output</label><select id="hq" onchange="selectHQ()"><option value="">Select output</option><option value="@mac">Default Mac Output</option></select><button id="refreshHQ" onclick="refreshHQ()">↻ Discover</button><input id="manualHQ" style="width:170px;margin:0;padding:9px" placeholder="Host / IPv4 address"><button id="addHQ" onclick="manualHQ()">Connect</button><small id="hqInfo">Searching local network…</small><div class="hqtip"><strong>Tip:</strong> To use HQPlayer Desktop on another computer, enable <strong>Allow control from network</strong> in HQPlayer Desktop.</div></div><div class="layout"><section class="panel now"><div><div class="eyebrow">Now tuned to</div><h2 id="current">BBC Radio 4</h2><div class="phase" id="phase">Idle</div><div class="status" id="status" role="status" aria-live="polite">Ready</div><small id="bytes"></small><dl id="clocks" hidden><div><dt>Toronto time</dt><dd id="torontoTime"></dd></div><div><dt>London programme</dt><dd id="londonTime"></dd></div><div><dt>Time shift</dt><dd id="timeShift"></dd></div></dl><fieldset id="shiftControls" hidden><legend>Time shift</legend><label for="shiftRange">Delay behind live <output id="shiftValue" for="shiftRange"></output></label><input id="shiftRange" type="range" min="0" max="43200" step="1" oninput="showShiftValue()" onchange="applyShift(Number(this.value))"><div class="shift-steps"><button onclick="stepShift(300)">Back 5 min</button><button onclick="stepShift(60)">Back 1 min</button><button onclick="stepShift(-60)">Forward 1 min</button><button onclick="stepShift(-300)">Forward 5 min</button></div><small id="shiftLimit"></small></fieldset></div><div class="controls"><button id="playBtn" class="primary" onclick="playSelected()">▶ Play</button><button id="stopBtn" onclick="stop()">■ Stop</button></div></section><section class="panel"><h2>BBC Radio</h2><div class="hint">International (ww) BBC streams are preferred. Radio 4 is verified; other services may still be unavailable or geographically restricted.</div><div id="stations"></div></section><section class="panel"><h2>Explore the world</h2><div class="hint">Search the community-maintained Radio Browser directory by station name. Results depend on the station's current stream availability.</div><div style="display:flex;gap:8px;margin-top:15px"><input id="search" placeholder="Station, genre or broadcaster…" onkeydown="if(event.key==='Enter')search()"><button id="searchBtn" onclick="search()" style="height:43px">Search</button></div><div id="results" class="hint">Try “SomaFM”, “Jazz”, “France”, or “Radio Paradise”.</div></section></div><footer>Rust audio engine · local-only interface · FFmpeg lossless FLAC bridge · HQPlayer → NAA<br>Automatic recovery: up to three retries with backoff. Station availability and geographic restrictions vary.</footer></div><script>
 let state=null;let busy=false;let searching=false;let selecting=false;
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function api(path,method='GET'){let r=await fetch(path,{method,cache:'no-store'});return await r.json()}
@@ -11,6 +12,7 @@ const phase=state.phase||'idle';document.getElementById('phase').textContent=pha
 document.getElementById('status').textContent=state.message;document.getElementById('status').className='status'+(/failed|error|interrupted|unavailable/i.test(state.message)?' error':'');
 document.getElementById('bytes').textContent=state.connected?'Stream active · '+(state.bytes/1024/1024).toFixed(1)+' MiB delivered':'';
 const pending=busy||selecting||['validating','starting','stopping','switching'].includes(phase);
+updateShiftControls(st,pending);
 document.getElementById('playBtn').disabled=pending||(state.hq_host!=='@mac'&&!(state.hq_targets||[]).length);
 document.getElementById('playBtn').textContent=pending?'◌ Working…':phase==='playing'?'▶ Retune':'▶ Play';
 document.getElementById('stopBtn').disabled=busy||!state.playing;
@@ -30,17 +32,99 @@ if(!selecting){
 document.getElementById('hqInfo').textContent=state.hq_host==='@mac'
   ? 'Using the macOS default audio device'
   : (state.hq_targets||[]).length+' HQPlayer devices discovered';
-let box=document.getElementById('stations');box.innerHTML=state.stations.filter(x=>x.group==='BBC').map(x=>`<div class="station ${state.selected===x.id?'active':''}"><div><strong>${esc(x.name)}</strong><small>${x.rewind?'Live and Toronto-time rewind':'Live feed'}</small></div><div class="station-actions"><button ${pending?'disabled':''} onclick="play(${x.id})" aria-label="Play ${esc(x.name)} live">Live</button>${x.rewind?`<button ${pending?'disabled':''} onclick="play(${x.id},'rewind')" aria-label="Rewind ${esc(x.name)}">Rewind</button>`:''}</div></div>`).join('');
+let box=document.getElementById('stations');box.innerHTML=state.stations.filter(x=>x.group==='BBC').map(x=>`<div class="station ${state.selected===x.id?'active':''}"><div><strong>${esc(x.name)}</strong><small>${x.rewind?'Toronto-time playback':'Live broadcast'}</small></div><div class="station-actions"><button ${pending?'disabled':''} onclick="play(${x.id},'${x.rewind?'rewind':'live'}')" aria-label="Play ${esc(x.name)}${x.rewind?' on Toronto time':' live'}">Live</button></div></div>`).join('');
 }catch(e){document.getElementById('status').textContent='Engine unreachable — '+e.message;document.getElementById('phase').textContent='Disconnected';}}
 function showError(message){let el=document.getElementById('status');el.textContent=message;el.className='status error';}
-async function play(id,mode="live"){if(busy)return;busy=true;document.getElementById('playBtn').disabled=true;document.getElementById('playBtn').textContent='◌ Connecting…';document.getElementById('status').textContent='Validating station and connecting…';try{let x=await api('/api/play?id='+id+'&mode='+mode,'POST');if(!x.ok)showError(x.error)}catch(e){showError(e.message)}finally{busy=false;await refresh()}}
-async function playSelected(){if(state)await play(state.selected,state.rewind_delay==null?"live":"rewind")}
+async function play(id,mode="live",delay=null){
+  if(busy||selecting)return;
+  busy=true;
+  document.getElementById('shiftControls').disabled=true;
+  document.getElementById('playBtn').disabled=true;
+  document.getElementById('playBtn').textContent='◌ Connecting…';
+  document.getElementById('status').textContent='Validating station and connecting…';
+  let error;
+  try{
+    const request='/api/play?id='+id+'&mode='+mode+(delay===null?'':'&delay='+delay);
+    const result=await api(request,'POST');
+    if(!result.ok)error=result.error;
+  }catch(e){error=e.message}
+  finally{
+    busy=false;
+    await refresh();
+    if(error)showError(error);
+  }
+}
+async function playSelected(){
+  if(!state)return;
+  const aligned=!state.playing&&state.stations[state.selected]?.rewind;
+  await play(state.selected,aligned||state.rewind_delay!=null?"rewind":"live",state.rewind_delay);
+}
 async function stop(){if(busy)return;busy=true;document.getElementById('status').textContent='Stopping…';document.getElementById('stopBtn').disabled=true;try{let x=await api('/api/stop','POST');if(!x.ok)showError(x.error)}catch(e){showError(e.message)}finally{busy=false;await refresh()}}
 async function selectHQ(){if(selecting)return;let host=document.getElementById('hq').value;if(!host)return;await changeHQ(host)}
 async function manualHQ(){let host=document.getElementById('manualHQ').value.trim();if(!host)return;await changeHQ(host)}
 async function changeHQ(host){selecting=true;document.getElementById('hqInfo').textContent=host==='@mac'?'Selecting Default Mac Output…':'Connecting to '+host+'…';document.getElementById('hq').disabled=true;try{let x=await api('/api/hq/select?host='+encodeURIComponent(host),'POST');if(!x.ok)showError(x.error)}catch(e){showError(e.message)}finally{selecting=false;document.getElementById('hq').disabled=false;await refresh()}}
 async function refreshHQ(){let btn=document.getElementById('refreshHQ');btn.disabled=true;btn.textContent='◌ Discovering…';try{let x=await api('/api/hq/refresh','POST');if(!x.ok)showError(x.error);setTimeout(refresh,2000)}catch(e){showError(e.message)}finally{setTimeout(()=>{btn.disabled=false;btn.textContent='↻ Discover'},1800)}}
 async function search(){if(searching)return;let q=document.getElementById('search').value.trim();if(q.length<2)return;searching=true;let btn=document.getElementById('searchBtn');btn.disabled=true;btn.textContent='◌ Searching…';let box=document.getElementById('results');box.textContent='Searching worldwide stations…';try{let x=await api('/api/search?q='+encodeURIComponent(q));if(!x.ok){box.textContent=x.error;return}if(!x.stations.length){box.textContent='No results';return}box.innerHTML=x.stations.map((s,i)=>`<div class="result"><div><strong>${esc(s.name)}</strong><small>${esc(s.country)} · ${esc(s.codec)} ${s.bitrate?esc(s.bitrate)+' kbps':''}</small></div><button data-index="${i}">Tune</button></div>`).join('');box.querySelectorAll('button').forEach(b=>b.onclick=async()=>{let s=x.stations[Number(b.dataset.index)];b.disabled=true;b.textContent='◌ Tuning…';try{let a=await api('/api/add?name='+encodeURIComponent(s.name)+'&url='+encodeURIComponent(s.url),'POST');if(!a.ok){showError(a.error);return}await play(a.id)}finally{b.disabled=false;b.textContent='Tune'}});}catch(e){box.textContent='Directory error: '+e.message}finally{searching=false;btn.disabled=false;btn.textContent='Search'}}
+const shiftRange=document.getElementById('shiftRange');
+const shiftControls=document.getElementById('shiftControls');
+const shiftLimit=document.getElementById('shiftLimit');
+let shiftStation=null;
+let shiftLimits=null;
+let lastTuning=null;
+function durationText(seconds){
+  const hours=Math.floor(seconds/3600);
+  const minutes=Math.floor(seconds/60)%60;
+  const remainder=seconds%60;
+  return [hours&&hours+' h',minutes&&minutes+' min',remainder&&remainder+' s'].filter(Boolean).join(' ')||'Live broadcast';
+}
+function showShiftValue(){
+  const seconds=Number(shiftRange.value);
+  document.getElementById('shiftValue').textContent=durationText(seconds);
+  shiftRange.setAttribute('aria-valuetext',durationText(seconds));
+}
+function updateShiftControls(station,pending){
+  shiftControls.hidden=!station?.rewind;
+  if(!station?.rewind){shiftStation=null;shiftLimits=null;return;}
+  shiftControls.disabled=pending;
+  if(shiftStation!==station.id){
+    shiftStation=station.id;
+    shiftLimits=null;
+    lastTuning=null;
+    shiftRange.max=43200;
+    shiftLimit.textContent='Checking available history…';
+    loadShiftLimits(station.id);
+  }
+  const tuning=state.generation+':'+state.rewind_delay+':'+state.playing;
+  if(lastTuning!==tuning){
+    lastTuning=tuning;
+    shiftRange.value=state.rewind_delay??(state.playing?0:shiftLimits?.aligned??0);
+    showShiftValue();
+  }
+}
+async function loadShiftLimits(id){
+  let result;
+  try{result=await api('/api/rewind/limits?id='+id)}catch{}
+  if(shiftStation!==id)return;
+  shiftLimits=result?.ok?result:null;
+  shiftRange.max=shiftLimits?.max??43200;
+  shiftLimit.textContent=shiftLimits
+    ? 'Available history: '+durationText(shiftLimits.max)
+    : 'History unavailable. Delays up to 12 h are checked when tuning.';
+  if(!state.playing && !busy)shiftRange.value=shiftLimits?.aligned??0;
+  showShiftValue();
+}
+async function applyShift(seconds){
+  if(busy||selecting||!state?.stations[state.selected]?.rewind)return;
+  const delay=seconds>0?Math.max(shiftLimits?.min??1,seconds):0;
+  shiftRange.value=delay;
+  showShiftValue();
+  await play(state.selected,delay?'rewind':'live',delay||null);
+}
+function stepShift(delta){
+  const delay=state?.playing?(state.rewind_delay??0):Number(shiftRange.value);
+  return applyShift(Math.max(0,Math.min(Number(shiftRange.max),delay+delta)));
+}
+
 const clock = zone => new Intl.DateTimeFormat(undefined, {
   timeZone: zone, weekday: 'short', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short'
 });
@@ -54,7 +138,7 @@ function updateClocks() {
   const delay = state.rewind_delay ?? 0;
   document.getElementById('torontoTime').textContent = torontoClock.format(now);
   document.getElementById('londonTime').textContent = londonClock.format(now - delay * 1000);
-  document.getElementById('timeShift').textContent = delay ? `${delay / 3600} h behind live` : '0 h · Live';
+  document.getElementById('timeShift').textContent = delay ? durationText(delay)+' behind live' : '0 h · Live broadcast';
 }
 refresh();setInterval(refresh,2500);setInterval(updateClocks,1000);
 </script></body></html>
