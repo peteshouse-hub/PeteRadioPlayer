@@ -5,7 +5,7 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
 use std::time::Duration;
 use serde_json::{json, Value};
-use crate::{Shared, hqplayer, rewind, ffmpeg::FfmpegStream, station::Station};
+use crate::{MAC_OUTPUT, Shared, hqplayer, rewind, ffmpeg::FfmpegStream, station::Station};
 
 pub fn run(address: &str, state: Shared, running: Arc<AtomicBool>) -> io::Result<()> {
     let listener = TcpListener::bind("0.0.0.0:8765")?;
@@ -68,6 +68,7 @@ fn play(state: &Shared, index: usize, use_rewind: bool) -> Result<(),String> {
         if use_rewind && station.rewind_url.is_none() {
             return Err("Rewind is unavailable for this station".into());
         }
+        stop_mac_player(&mut s);
         s.rewind_delay=None;
         s.selected=index;s.generation+=1;generation=s.generation;
         s.playing=true;s.connected=false;s.retry_count=0;s.last_bytes=0;
@@ -89,28 +90,81 @@ fn play(state: &Shared, index: usize, use_rewind: bool) -> Result<(),String> {
             return Err(format!("Source unavailable: {e}"));
         }
     };
-    let host={let mut s=state.lock().unwrap();
-        if s.generation!=generation {return Err("Playback request superseded".into());}
-        s.rewind_delay=delay;
-        s.phase="starting".into();s.message="Starting HQPlayer…".into();s.hq_host.clone()};
-    let source_host=match hqplayer::stream_host(&host) {
-        Ok(h)=>h,
-        Err(e)=>{
-            let message=format!("Cannot route stream to {host}: {e}");
-            let mut s=state.lock().unwrap();
-            if s.generation==generation {s.playing=false;s.phase="error".into();s.message=message.clone();}
-            return Err(message);
-        }
+    let output = {
+        let mut s = state.lock().unwrap();
+        if s.generation != generation { return Err("Playback request superseded".into()); }
+        s.rewind_delay = delay;
+        s.phase = "starting".into();
+        s.message = format!("Starting {}…", output_label(&s.hq_host));
+        s.hq_host.clone()
     };
-    let _=hqplayer::stop(&host);
-    let uri=format!("http://{source_host}:8765/live.flac?g={generation}");
-    if let Err(e)=hqplayer::play(&host,&uri) {
-        let mut s=state.lock().unwrap();
-        if s.generation==generation {s.playing=false;s.phase="error".into();s.message=format!("HQPlayer control failed: {e}");}
-        return Err(format!("HQPlayer control failed: {e}"));
+    if let Err(error) = start_output(state, generation, &output) {
+        let mut s = state.lock().unwrap();
+        if s.generation == generation {
+            s.playing = false;
+            s.phase = "error".into();
+            s.message = format!("Output failed: {error}");
+        }
+        return Err(error);
     }
     Ok(())
 }
+
+fn output_label(output: &str) -> &str {
+    if output == MAC_OUTPUT { "Default Mac Output" } else { "HQPlayer" }
+}
+
+fn stop_mac_player(state: &mut crate::State) {
+    if let Some(mut player) = state.mac_player.take() {
+        let _ = player.kill();
+        let _ = player.wait();
+    }
+}
+
+fn start_output(state: &Shared, generation: u64, output: &str) -> Result<(), String> {
+    if output != MAC_OUTPUT {
+        let source = hqplayer::stream_host(output).map_err(|e| format!("Cannot route stream to {output}: {e}"))?;
+        let _ = hqplayer::stop(output);
+        let uri = format!("http://{source}:8765/live.flac?g={generation}");
+        return hqplayer::play(output, &uri).map_err(|error| error.to_string());
+    }
+
+    let mut s = state.lock().unwrap();
+    if s.generation != generation || !s.playing { return Err("Playback request superseded".into()); }
+    stop_mac_player(&mut s);
+    let uri = format!("http://127.0.0.1:8765/live.flac?g={generation}");
+    let player = Command::new("/opt/homebrew/bin/ffplay")
+        .args(["-hide_banner", "-loglevel", "error", "-nostats", "-nodisp", "-autoexit", "-i", &uri])
+        .env("SDL_AUDIODRIVER", "coreaudio")
+        .stdin(std::process::Stdio::null())
+        .spawn().map_err(|error| format!("Could not start FFplay. Install FFmpeg with FFplay support: {error}"))?;
+    s.mac_player = Some(player);
+    drop(s);
+
+    let shared = state.clone();
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(200));
+        let mut s = shared.lock().unwrap();
+        if !s.playing || s.generation != generation { return; }
+        let Some(player) = s.mac_player.as_mut() else { return; };
+        match player.try_wait() {
+            Ok(None) => continue,
+            Ok(Some(_)) => {
+                s.mac_player = None;
+                drop(s);
+                record_failure(&shared, generation, "Mac audio player exited".into());
+            }
+            Err(error) => {
+                stop_mac_player(&mut s);
+                drop(s);
+                record_failure(&shared, generation, format!("Mac audio player: {error}"));
+            }
+        }
+        return;
+    });
+    Ok(())
+}
+
 fn preflight(station: &Station) -> Result<(), String> {
     // FFmpeg writes one second of decoded FLAC into a temporary stdout buffer.
     // The process is killed after 12 seconds; an HTTP 403, dead URL or bad codec
@@ -145,23 +199,60 @@ fn preflight(station: &Station) -> Result<(), String> {
     }
 }
 
-fn stop(state: &Shared) -> Result<(),String> {
-    let host={let mut s=state.lock().unwrap();s.generation+=1;s.playing=false;s.connected=false;s.retry_count=0;s.phase="stopping".into();s.message="Stopping…".into();s.hq_host.clone()};
-    let result=hqplayer::stop(&host).map_err(|e|e.to_string());
-    let mut s=state.lock().unwrap();s.phase=if result.is_ok(){"idle"}else{"error"}.into();
-    s.message=if result.is_ok(){"Stopped".into()}else{format!("Stop failed: {}",result.as_ref().unwrap_err())};
+pub fn stop(state: &Shared) -> Result<(),String> {
+    let (generation, output, was_playing) = {
+        let mut s = state.lock().unwrap();
+        let was_playing = s.playing;
+        s.generation += 1;
+        s.playing = false;
+        s.connected = false;
+        s.retry_count = 0;
+        s.phase = "stopping".into();
+        s.message = "Stopping…".into();
+        stop_mac_player(&mut s);
+        (s.generation, s.hq_host.clone(), was_playing)
+    };
+    let result = if output != MAC_OUTPUT && was_playing {
+        hqplayer::stop(&output).map_err(|e| e.to_string())
+    } else {
+        Ok(())
+    };
+    let mut s = state.lock().unwrap();
+    if s.generation == generation {
+        s.phase = if result.is_ok() { "idle" } else { "error" }.into();
+        s.message = match &result {
+            Ok(()) => "Stopped".into(),
+            Err(error) => format!("Stop failed: {error}"),
+        };
+    }
     result
 }
+
 fn select_hq(state:&Shared,host:&str)->Result<(),String>{
-    if host.is_empty() || host.len()>255 || !host.chars().all(|c|c.is_ascii_alphanumeric()||c=='.'||c=='-') {return Err("Invalid HQPlayer host".into());}
-    if !hqplayer::reachable(host) {return Err(format!("HQPlayer control port unreachable at {host}:4321"));}
-    if hqplayer::info(host).is_none() {return Err(format!("HQPlayer control handshake failed at {host}"));}
-    let old={let s=state.lock().unwrap();s.hq_host.clone()};
-    if old==host {return Ok(());}
-    {let mut s=state.lock().unwrap();s.generation+=1;s.playing=false;s.connected=false;s.phase="switching".into();s.message="Switching HQPlayer…".into();}
-    let _=hqplayer::stop(&old);
-    let mut s=state.lock().unwrap();s.hq_host=host.into();s.phase="idle".into();s.message=format!("HQPlayer selected: {host}");
-    if !s.hq_targets.iter().any(|(h,_)|h==host){s.hq_targets.push((host.into(),format!("{} · manually added",host)));}
+    if host != MAC_OUTPUT {
+        if host.is_empty() || host.len()>255 || !host.chars().all(|c|c.is_ascii_alphanumeric()||c=='.'||c=='-') {return Err("Invalid HQPlayer host".into());}
+        if !hqplayer::reachable(host) {return Err(format!("HQPlayer control port unreachable at {host}:4321"));}
+        if hqplayer::info(host).is_none() {return Err(format!("HQPlayer control handshake failed at {host}"));}
+    }
+    let (generation, old, was_playing) = {
+        let mut s = state.lock().unwrap();
+        if s.hq_host == host { return Ok(()); }
+        let was_playing = s.playing;
+        s.generation += 1;
+        s.playing = false;
+        s.connected = false;
+        s.phase = "switching".into();
+        s.message = "Switching output…".into();
+        stop_mac_player(&mut s);
+        (s.generation, s.hq_host.clone(), was_playing)
+    };
+    if old != MAC_OUTPUT && was_playing { let _ = hqplayer::stop(&old); }
+    let mut s = state.lock().unwrap();
+    if s.generation != generation { return Err("Output selection superseded".into()); }
+    s.hq_host = host.into();
+    s.phase = "idle".into();
+    s.message = if host == MAC_OUTPUT { "Default Mac Output selected".into() } else { format!("HQPlayer selected: {host}") };
+    if host != MAC_OUTPUT && !s.hq_targets.iter().any(|(h,_)|h==host){s.hq_targets.push((host.into(),format!("{} · manually added",host)));}
     Ok(())
 }
 fn search(term: &str) -> Result<Vec<Value>,String> {
@@ -284,14 +375,15 @@ fn stream_audio(mut socket: TcpStream, state: Shared, path: &str) -> io::Result<
     Ok(())
 }
 fn record_failure(state: &Shared, generation: u64, reason: String) {
-    let (retry, index)={
+    let retry={
         let mut s=state.lock().unwrap();
-        if !s.playing||s.generation!=generation{return;}
+        if !s.playing || s.generation != generation || s.phase == "reconnecting" { return; }
+        stop_mac_player(&mut s);
         s.connected=false;s.phase="reconnecting".into();s.retry_count+=1;
         let retry=s.retry_count;
         s.message=if retry<=3 {format!("Stream interrupted ({reason}); retry {retry}/3…")}else{format!("Playback failed after 3 retries: {reason}. Press Play to retry.")};
         if retry>3 {s.playing=false;s.phase="error".into();return;}
-        (retry,s.selected)
+        retry
     };
     let shared=state.clone();
     thread::spawn(move||{
@@ -301,12 +393,11 @@ fn record_failure(state: &Shared, generation: u64, reason: String) {
             if !s.playing || s.generation != generation { return; }
             // Retain the retry budget and rewind delay across automatic recovery.
             s.generation += 1;
+            s.phase = "starting".into();
             (s.generation, s.hq_host.clone())
         };
-        let source_host=match hqplayer::stream_host(&host) {Ok(h)=>h,Err(e)=>{record_failure(&shared,next,format!("Route failure: {e}"));return;}};
-        let _=hqplayer::stop(&host);
-        let uri=format!("http://{source_host}:8765/live.flac?g={next}");
-        if let Err(e)=hqplayer::play(&host,&uri) {record_failure(&shared,next,format!("HQPlayer reconnect: {e}"));}
-        else {let mut s=shared.lock().unwrap();if s.generation==next{s.selected=index;}}
+        if let Err(error) = start_output(&shared, next, &host) {
+            record_failure(&shared, next, format!("Output reconnect: {error}"));
+        }
     });
 }

@@ -9,7 +9,8 @@ use std::thread;
 use std::time::Duration;
 use station::{Station, bbc};
 
-#[derive(Clone)]
+pub const MAC_OUTPUT: &str = "@mac";
+
 pub struct State {
     pub stations: Vec<Station>,
     pub selected: usize,
@@ -20,6 +21,7 @@ pub struct State {
     pub last_bytes: u64,
     pub retry_count: u32,
     pub hq_host: String,
+    pub mac_player: Option<std::process::Child>,
     pub hq_targets: Vec<(String,String)>,
     pub phase: String,
     pub rewind_delay: Option<i64>,
@@ -33,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stations: bbc(), selected: 0, generation: 0, playing: false,
         connected: false, message: "Ready — choose a station".into(), last_bytes: 0,
         retry_count: 0, hq_host: "127.0.0.1".into(),
-        hq_targets: Vec::new(), phase: "idle".into(), rewind_delay: None,
+        mac_player: None, hq_targets: Vec::new(), phase: "idle".into(), rewind_delay: None,
     }));
     let running = Arc::new(AtomicBool::new(true));
     let signal = running.clone();
@@ -49,8 +51,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut s=discovery_state.lock().unwrap();
                 let selected=s.hq_host.clone();
                 s.hq_targets=found;
-                if s.hq_targets.is_empty() && !s.playing {s.message="No HQPlayer Desktop found — refresh or enter a host".into();}
-                if !s.hq_targets.iter().any(|(h,_)| h==&selected) && !s.playing {
+                if selected != MAC_OUTPUT && s.hq_targets.is_empty() && s.phase == "idle" {s.message="No HQPlayer Desktop found — refresh or enter a host".into();}
+                if selected != MAC_OUTPUT && !s.hq_targets.iter().any(|(h,_)| h==&selected) && s.phase == "idle" {
                     if let Some((h,_))=s.hq_targets.first() {s.hq_host=h.clone();}
                 }
             }
@@ -64,8 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = std::process::Command::new("open").arg("http://127.0.0.1:8765/").status();
     }
     while running.load(Ordering::SeqCst) { thread::sleep(Duration::from_millis(200)); }
-    let host=state.lock().unwrap().hq_host.clone();
-    let _ = hqplayer::stop(&host);
+    let _ = server::stop(&state);
     let _=discovery.join();
     match worker.join() {
         Ok(Ok(())) => Ok(()),

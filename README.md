@@ -2,7 +2,7 @@
 
 A lightweight, local macOS radio interface that streams BBC and worldwide radio through **HQPlayer Desktop**, using FFmpeg to decode incoming audio into lossless FLAC over localhost HTTP.
 
-**Development build:** v0.4.0-alpha.7. Previous stable release: PeteRadioPlayer v0.3.2.
+**Development build:** v0.4.0-alpha.8. Previous stable release: PeteRadioPlayer v0.3.2.
 
 ## Features
 
@@ -16,12 +16,12 @@ A lightweight, local macOS radio interface that streams BBC and worldwide radio 
 
 - macOS on Apple Silicon; Rust/Cargo
 - FFmpeg at `/opt/homebrew/bin/ffmpeg`
-- HQPlayer Desktop running locally or on a reachable LAN host, with `hqp6-control` at `/Applications/hqp6-control.app/Contents/MacOS/hqp6-control`
+- For HQPlayer output, HQPlayer Desktop running locally or on a reachable LAN host, with `hqp6-control` at `/Applications/hqp6-control.app/Contents/MacOS/hqp6-control`
 - Network connectivity; audio output configured in HQPlayer
 
 ## Install the alpha
 
-Download the macOS arm64 ZIP from [GitHub Releases](https://github.com/peteshouse-hub/PeteRadioPlayer/releases), extract it, and open `RadioKing.app`. The ZIP contains the launcher and Rust server. It requires macOS 13 or later, FFmpeg, HQPlayer Desktop, and `hqp6-control`. The app is ad hoc signed and unnotarized.
+Download the macOS arm64 ZIP from [GitHub Releases](https://github.com/peteshouse-hub/PeteRadioPlayer/releases), extract it, and open `RadioKing.app`. The ZIP contains the launcher and Rust server. It requires macOS 13 or later and FFmpeg. See Output below for playback requirements. The app is ad hoc signed and unnotarized.
 
 Quit any older RadioKing Live instance before opening RadioKing. Both use TCP 8765. To build and install from source, run `./install-app.sh`.
 
@@ -31,7 +31,11 @@ Quit any older RadioKing Live instance before opening RadioKing. Both use TCP 87
 cargo run --release
 ```
 
-The application launches a local browser interface. It is not an independent audio player: HQPlayer is required and is **not** bundled. FFmpeg and HQPlayer are separate third-party software governed by their respective licences.
+The application launches a local browser interface. FFmpeg, FFplay and HQPlayer are external dependencies governed by their respective licences.
+
+## Output
+
+Select **Default Mac Output** from the **Output** menu to use the audio device selected in macOS Sound settings. This mode requires FFplay at `/opt/homebrew/bin/ffplay`. Select an HQPlayer device from the same menu for HQPlayer playback. Live and BBC Rewind work with either output. After switching outputs, press Play or Rewind to tune again.
 
 ## BBC Rewind
 
