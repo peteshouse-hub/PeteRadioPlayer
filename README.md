@@ -2,7 +2,7 @@
 
 A lightweight, local macOS radio interface that streams BBC and worldwide radio through **HQPlayer Desktop**, using FFmpeg to decode incoming audio into lossless FLAC over localhost HTTP.
 
-**Development build:** v0.4.0-alpha.6. Previous stable release: PeteRadioPlayer v0.3.2.
+**Development build:** v0.4.0-alpha.7. Previous stable release: PeteRadioPlayer v0.3.2.
 
 ## Features
 
