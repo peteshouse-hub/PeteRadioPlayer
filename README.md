@@ -1,8 +1,8 @@
-# RadioKing Live
+# RadioKing
 
 A lightweight, local macOS radio interface that streams BBC and worldwide radio through **HQPlayer Desktop**, using FFmpeg to decode incoming audio into lossless FLAC over localhost HTTP.
 
-**Development build:** v0.4.0-alpha.4. Previous stable release: PeteRadioPlayer v0.3.2.
+**Development build:** v0.4.0-alpha.5. Previous stable release: PeteRadioPlayer v0.3.2.
 
 ## Features
 
@@ -19,7 +19,13 @@ A lightweight, local macOS radio interface that streams BBC and worldwide radio 
 - HQPlayer Desktop running locally or on a reachable LAN host, with `hqp6-control` at `/Applications/hqp6-control.app/Contents/MacOS/hqp6-control`
 - Network connectivity; audio output configured in HQPlayer
 
-## Run
+## Install the alpha
+
+Download the macOS arm64 ZIP from [GitHub Releases](https://github.com/peteshouse-hub/PeteRadioPlayer/releases), extract it, and open `RadioKing.app`. The ZIP contains the launcher and Rust server. It requires macOS 13 or later, FFmpeg, HQPlayer Desktop, and `hqp6-control`. The app is ad hoc signed and unnotarized.
+
+Quit any older RadioKing Live instance before opening RadioKing. Both use TCP 8765. To build and install from source, run `./install-app.sh`.
+
+## Run from source
 
 ```sh
 cargo run --release
@@ -55,6 +61,6 @@ BBC stream directory reference: https://github.com/groupmsl/BBCRadioStreams
 
 Worldwide station directory: https://www.radio-browser.info/
 
-## Alpha.4 native macOS launcher
+## Native macOS launcher
 
-The `.app` now contains a minimal Swift/AppKit executable (`RadioKingLive`) which owns the normal macOS application event loop. It starts the unchanged Rust streaming server (`Contents/Resources/RadioKingServer`) and opens the browser interface. Clicking the Dock icon reopens the browser UI; quitting the app sends SIGINT to the Rust server for its existing HQPlayer shutdown path. Running `cargo run` directly retains the earlier browser-opening behaviour. Requires Xcode Command Line Tools (`swiftc`) to package on macOS.
+The `.app` now contains a minimal Swift/AppKit executable (`RadioKing`) which owns the normal macOS application event loop. It starts the unchanged Rust streaming server (`Contents/Resources/RadioKingServer`) and opens the browser interface. Clicking the Dock icon reopens the browser UI; quitting the app sends SIGINT to the Rust server for its existing HQPlayer shutdown path. Running `cargo run` directly retains the earlier browser-opening behaviour. Requires Xcode Command Line Tools (`swiftc`) to package on macOS.

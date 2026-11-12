@@ -116,8 +116,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "radio-king-live"
-version = "0.4.0-alpha.4"
+name = "radio-king"
+version = "0.4.0-alpha.5"
 dependencies = [
  "ctrlc",
  "serde_json",

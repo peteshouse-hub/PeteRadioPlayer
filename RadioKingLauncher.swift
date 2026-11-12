@@ -19,7 +19,7 @@ final class RadioKingDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 guard let self = self, !self.quitting else { return }
                 let alert = NSAlert()
-                alert.messageText = "RadioKing Live server stopped"
+                alert.messageText = "RadioKing server stopped"
                 alert.informativeText = "The audio server exited (status \(ended.terminationStatus)). Check that port 8765 is free."
                 alert.runModal()
                 NSApp.terminate(nil)
@@ -30,7 +30,7 @@ final class RadioKingDelegate: NSObject, NSApplicationDelegate {
             server = process
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Cannot start RadioKing Live"
+            alert.messageText = "Cannot start RadioKing"
             alert.informativeText = error.localizedDescription
             alert.runModal()
             NSApp.terminate(nil)

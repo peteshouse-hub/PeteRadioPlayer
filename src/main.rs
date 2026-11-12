@@ -26,7 +26,7 @@ pub struct State {
 pub type Shared = Arc<Mutex<State>>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("RadioKing Live 0.4.0-alpha.4 — BBC + World Explorer");
+    println!("RadioKing {} — BBC + World Explorer", env!("CARGO_PKG_VERSION"));
     let state: Shared = Arc::new(Mutex::new(State {
         stations: bbc(), selected: 0, generation: 0, playing: false,
         connected: false, message: "Ready — choose a station".into(), last_bytes: 0,

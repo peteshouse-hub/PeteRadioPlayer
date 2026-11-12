@@ -1,4 +1,4 @@
-# RadioKing Live 0.4.0-alpha.4
+# RadioKing 0.4.0-alpha.5
 
 Development branch: `live-v0.4`. **Do not replace the released v0.3.2 app yet.**
 
@@ -18,7 +18,7 @@ Development branch: `live-v0.4`. **Do not replace the released v0.3.2 app yet.**
 
 - Both Macs on a mutually reachable LAN (not client-isolated guest Wi-Fi).
 - On the *remote* HQPlayer Desktop, enable **Allow control from network**.
-- Allow incoming TCP 8765 to the PeteRadioPlayer Mac through its firewall.
+- Allow incoming TCP 8765 to the RadioKing Mac through its firewall.
 - TCP 4321 must be reachable on the selected HQPlayer host.
 - `hqp6-control` and FFmpeg remain installed at the paths used by v0.3.2.
 
@@ -46,18 +46,15 @@ Or run from an extracted ZIP directory without touching the Git working tree.
   HQPlayer's audio device reporting audible sound.
 - Remote FLAC is served over unencrypted HTTP on the local network; the
   browser control/API remains loopback-only.
-- This build has not been compiled or auditioned on the target Macs here.
 
 ## Install macOS app
 
-Quit any running player (TCP 8765), then run `./install-app.sh` from this extracted directory. The installer preserves an existing `RadioKing Live.app` as `RadioKing Live (previous alpha).app` when possible. It does not modify `PeteRadioPlayer.app` or the published v0.3.2 release.
+Quit any running player on TCP 8765. Extract the release ZIP and open `RadioKing.app`. To install from source, run `./install-app.sh`. The source installer preserves an existing `RadioKing.app` as `RadioKing (previous alpha).app`. An existing `RadioKing Live.app` can be kept for rollback.
 
-## Alpha.4 regression checklist
+## Alpha.5 regression checklist
 
 1. Quit the previous RadioKing app, verify port 8765 is free.
-2. Run `./install-app.sh`, then `open "$HOME/Applications/RadioKing Live.app"`.
+2. Run `./install-app.sh`, then `open "$HOME/Applications/RadioKing.app"`.
 3. Confirm Dock dot persists without bouncing, browser opens, and Dock click returns to browser.
 4. Tune BBC Radio 4 and confirm uninterrupted audio through HQPlayer.
 5. Quit via Dock > Quit and verify TCP 8765 is released.
-
-Note: Native launcher is a new component and has not been compiled/tested on macOS in the packaging environment. Do not delete alpha.3 backup before validating.

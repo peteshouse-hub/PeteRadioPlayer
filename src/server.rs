@@ -10,13 +10,13 @@ use crate::{Shared, hqplayer, ffmpeg::FfmpegStream, station::Station};
 pub fn run(address: &str, state: Shared, running: Arc<AtomicBool>) -> io::Result<()> {
     let listener = TcpListener::bind("0.0.0.0:8765")?;
     listener.set_nonblocking(true)?;
-    eprintln!("[RadioKing Live] RAW HTTP/1.0 audio + GUI ready at http://{address}/");
+    eprintln!("[RadioKing] RAW HTTP/1.0 audio + GUI ready at http://{address}/");
     while running.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((socket, _)) => {
                 let s = state.clone();
                 thread::spawn(move || {
-                    if let Err(e) = handle(socket, s) { eprintln!("[RadioKing Live] request: {e}"); }
+                    if let Err(e) = handle(socket, s) { eprintln!("[RadioKing] request: {e}"); }
                 });
             }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(20)),
@@ -156,7 +156,7 @@ fn search(term: &str) -> Result<Vec<Value>,String> {
     // Radio Browser is federated; try several mirrors instead of relying on one.
     for host in ["de1.api.radio-browser.info","nl1.api.radio-browser.info","at1.api.radio-browser.info"] {
         let url=format!("https://{host}/json/stations/search?name={encoded}&limit=40&hidebroken=true&order=votes&reverse=true");
-        let output=Command::new("/usr/bin/curl").args(["-fLsS","--connect-timeout","4","--max-time","9","-A","RadioKing Live/0.3.2",&url]).output();
+        let output=Command::new("/usr/bin/curl").args(["-fLsS","--connect-timeout","4","--max-time","9","-A",concat!("RadioKing/", env!("CARGO_PKG_VERSION")),&url]).output();
         if let Ok(o)=output {
             if o.status.success() {
                 if let Ok(Value::Array(items))=serde_json::from_slice::<Value>(&o.stdout) {
@@ -239,7 +239,7 @@ fn stream_audio(mut socket: TcpStream, state: Shared, path: &str) -> io::Result<
     socket.set_read_timeout(None)?;
     // Known-good 0.2.1 wire protocol: HTTP/1.0, raw FLAC, no chunked encoding.
     socket.write_all(b"HTTP/1.0 200 OK\r\nContent-Type: audio/flac\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n")?;
-    eprintln!("[RadioKing Live] live GET: {} (generation {generation})",station.name);
+    eprintln!("[RadioKing] live GET: {} (generation {generation})",station.name);
     let mut ffmpeg=match FfmpegStream::start(&station) {
         Ok(p)=>p,
         Err(e)=>{record_failure(&state,generation,format!("FFmpeg start failed: {e}"));return Ok(());}
@@ -259,7 +259,7 @@ fn stream_audio(mut socket: TcpStream, state: Shared, path: &str) -> io::Result<
             Err(e)=>break format!("FFmpeg pipe error: {e}"),
         }
     };
-    eprintln!("[RadioKing Live] FLAC stream ended ({bytes} bytes): {reason}");
+    eprintln!("[RadioKing] FLAC stream ended ({bytes} bytes): {reason}");
     // Unexpected EOF or lost socket is not always a server fault. Retry is bounded.
     let active={let s=state.lock().unwrap();s.playing&&s.generation==generation};
     if active {record_failure(&state,generation,reason);}
