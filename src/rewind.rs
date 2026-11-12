@@ -104,7 +104,7 @@ fn select_segment<'a>(
 
 fn download_with_timeout(url: &Url, timeout: &str) -> Result<Vec<u8>> {
     // Use the system HTTPS client. The proof of concept expects direct CDN URLs.
-    let response = Command::new("/usr/bin/curl")
+    let response = Command::new(crate::platform::CURL)
         .args([
             "-q",
             "--fail",
@@ -291,16 +291,21 @@ pub fn start(manifest: &str, delay: i64) -> Result<FfmpegStream> {
         "[RadioKing] Rewind starts at {target} (sequence {sequence}, {offset:.3}s into segment)"
     );
 
-    let mut child = Command::new("/opt/homebrew/bin/ffmpeg")
+    let mut decoder = Command::new(crate::platform::FFMPEG);
+    decoder.args([
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "warning",
+        "-xerror",
+        "-re",
+    ]);
+    // The Homebrew FFmpeg used by macOS supports read-rate bursts. Linux
+    // distro builds may predate that option, so let -re pace the initial trim.
+    #[cfg(target_os = "macos")]
+    decoder.args(["-readrate_initial_burst", &format!("{:.6}", offset + 1.0)]);
+    let mut child = decoder
         .args([
-            "-hide_banner",
-            "-nostdin",
-            "-loglevel",
-            "warning",
-            "-xerror",
-            "-re",
-            "-readrate_initial_burst",
-            &format!("{:.6}", offset + 1.0),
             "-f",
             "mpegts",
             "-i",

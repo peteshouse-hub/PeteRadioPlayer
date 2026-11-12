@@ -2,7 +2,7 @@
 
 A lightweight, local macOS radio interface that streams BBC and worldwide radio through **HQPlayer Desktop**, using FFmpeg to decode incoming audio into lossless FLAC over localhost HTTP.
 
-**Development build:** v0.4.0-alpha.9. Previous stable release: PeteRadioPlayer v0.3.2.
+**Development build:** v0.4.0-alpha.10. Previous stable release: PeteRadioPlayer v0.3.2.
 
 ## Features
 
@@ -12,7 +12,7 @@ A lightweight, local macOS radio interface that streams BBC and worldwide radio 
 - FFmpeg source preflight, bounded retries and inline playback errors
 - Raw FLAC HTTP/1.0 transport with blocking accepted sockets (critical for reliable playback)
 
-## Requirements
+## macOS requirements
 
 - macOS on Apple Silicon; Rust/Cargo
 - FFmpeg at `/opt/homebrew/bin/ffmpeg`
@@ -24,6 +24,24 @@ A lightweight, local macOS radio interface that streams BBC and worldwide radio 
 Download the macOS arm64 ZIP from [GitHub Releases](https://github.com/peteshouse-hub/PeteRadioPlayer/releases), extract it, and open `RadioKing.app`. The ZIP contains the launcher and Rust server. It requires macOS 13 or later and FFmpeg. See Output below for playback requirements. The app is ad hoc signed and unnotarized.
 
 Quit any older RadioKing Live instance before opening RadioKing. Both use TCP 8765. To build and install from source, run `./install-app.sh`.
+
+## Fedora RPM
+
+Install the RPM for your architecture with `sudo dnf install ./radioking-*.rpm` (pass one RPM file). DNF resolves the FFmpeg, FFplay, curl, and browser launcher dependencies from the enabled repositories. Launch **RadioKing** from the application menu and keep its terminal open while listening.
+
+To build an RPM, install `cargo-generate-rpm`, build for a static Linux musl target, and then package it. For example, for x86-64:
+
+```sh
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
+  cargo build --release --locked --target x86_64-unknown-linux-musl
+cargo generate-rpm --target x86_64-unknown-linux-musl --metadata-overwrite packaging/fedora/rpm.toml
+```
+
+## Linux
+
+Linux uses **Default System Output** through FFplay and binds the web interface to loopback. HQPlayer Desktop controls are available in the macOS build.
+
+Install `ffmpeg`, `ffplay` (often included with FFmpeg), and `curl` on your PATH. RadioKing uses `xdg-open` to launch the browser when available. Run the extracted `radio-king` executable from a terminal, or build from source with Cargo. If the browser does not open, visit [RadioKing on this computer](http://127.0.0.1:8765/). Press Ctrl+C in the terminal to quit.
 
 ## Run from source
 
@@ -41,7 +59,7 @@ Select **Default Mac Output** from the **Output** menu to use the audio device s
 
 Choose **Live** on a built-in BBC station to hear the London programme scheduled for the current Toronto wall-clock time. Set the delay to zero to hear the current broadcast. The player shows Toronto time, the estimated London programme time, and the applied shift. Rewind is available for the 12 built-in BBC stations. Worldwide search results use live playback.
 
-For a BBC station, drag the **Time shift** slider to tune to a specific delay. **Back** and **Forward** move the programme by one or five minutes. Each adjustment retunes the stream. RadioKing reads the station’s current playlist to set the maximum, leaving room for the rolling window and startup buffering. If the history check fails, the slider offers up to 12 hours and RadioKing validates the requested delay when tuning.
+For a BBC station, drag the **Time shift** slider to tune to a specific delay. **Back** and **Forward** move the programme by one or five minutes. Each adjustment retunes the stream. The slider ranges from live to 24 hours behind. RadioKing displays the station’s currently available history and validates the requested delay before retuning. Playback continues at the current delay if the requested programme is outside that history.
 
 The shift is usually five hours and falls to four when the UK and Canada are on different daylight-saving schedules. RadioKing retains the starting shift during playback and follows HLS media sequences. Select Live on the station again to recalculate it after a clock change. RadioKing uses the later occurrence of an ambiguous London time and reports an error for a nonexistent London time or when the requested programme is outside the CDN's rolling window. Startup buffering and HQPlayer latency can put audio slightly behind the displayed programme time.
 

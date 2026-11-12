@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=RadioKing
+Comment=Listen to BBC and worldwide radio
+Exec=radio-king
+Icon=radioking
+Terminal=true
+Categories=AudioVideo;Audio;Player;

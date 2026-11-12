@@ -12,7 +12,7 @@ impl FfmpegStream {
     pub fn start(station: &Station) -> io::Result<Self> {
         eprintln!("[RadioKing] FFmpeg: {} -> FLAC 48 kHz stereo", station.name);
 
-        let child = Command::new("/opt/homebrew/bin/ffmpeg")
+        let child = Command::new(crate::platform::FFMPEG)
             .args([
                 "-hide_banner",
                 "-loglevel", "warning",

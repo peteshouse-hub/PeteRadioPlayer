@@ -1,0 +1,20 @@
+name = "radioking"
+version = "0.4.0~alpha.10"
+release = "1"
+license = "MIT"
+summary = "BBC and worldwide radio with adjustable BBC time shift"
+url = "https://github.com/peteshouse-hub/PeteRadioPlayer"
+auto-req = "no"
+require-sh = false
+assets = [
+    { source = "target/release/radio-king", dest = "/usr/bin/radio-king", mode = "755" },
+    { source = "packaging/fedora/radioking.desktop", dest = "/usr/share/applications/radioking.desktop", mode = "644" },
+    { source = "RadioKing.png", dest = "/usr/share/pixmaps/radioking.png", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/licenses/radioking/LICENSE", mode = "644" },
+]
+
+[requires]
+"/usr/bin/ffmpeg" = "*"
+"/usr/bin/ffplay" = "*"
+"/usr/bin/curl" = "*"
+xdg-utils = "*"

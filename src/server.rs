@@ -5,12 +5,13 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
 use std::time::Duration;
 use serde_json::{json, Value};
-use crate::{MAC_OUTPUT, Shared, hqplayer, rewind, ffmpeg::FfmpegStream, station::Station};
+#[cfg(target_os = "macos")]
+use crate::hqplayer;
+use crate::{MAC_OUTPUT, Shared, platform, rewind, ffmpeg::FfmpegStream, station::Station};
 
-pub fn run(address: &str, state: Shared, running: Arc<AtomicBool>) -> io::Result<()> {
-    let listener = TcpListener::bind("0.0.0.0:8765")?;
+pub fn run(listener: TcpListener, state: Shared, running: Arc<AtomicBool>) -> io::Result<()> {
     listener.set_nonblocking(true)?;
-    eprintln!("[RadioKing] RAW HTTP/1.0 audio + GUI ready at http://{address}/");
+    eprintln!("[RadioKing] RAW HTTP/1.0 audio + GUI ready at http://127.0.0.1:8765/");
     while running.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((socket, _)) => {
@@ -38,7 +39,7 @@ fn snapshot(state: &Shared) -> Value {
     json!({"stations": s.stations.iter().enumerate().map(|(i,st)|json!({"id":i,"name":st.name,"group":st.group,"rewind":st.rewind_url.is_some()})).collect::<Vec<_>>(),
         "selected":s.selected,"generation":s.generation,"playing":s.playing,
         "connected":s.connected,"message":s.message,"bytes":s.last_bytes,"retries":s.retry_count,
-        "phase":s.phase,"rewind_delay":s.rewind_delay.filter(|_| s.playing),"hq_host":s.hq_host,"hq_targets":s.hq_targets.iter().map(|(host,label)|json!({"host":host,"label":label})).collect::<Vec<_>>()})
+        "phase":s.phase,"rewind_delay":s.rewind_delay.filter(|_| s.playing),"hq_supported":platform::HQPLAYER,"system_output":platform::SYSTEM_OUTPUT,"hq_host":s.hq_host,"hq_targets":s.hq_targets.iter().map(|(host,label)|json!({"host":host,"label":label})).collect::<Vec<_>>()})
 }
 fn decode(s: &str) -> String {
     let bytes=s.as_bytes(); let mut out=Vec::new(); let mut i=0;
@@ -129,7 +130,7 @@ fn play(state: &Shared, index: usize, use_rewind: bool, requested_delay: Option<
 }
 
 fn output_label(output: &str) -> &str {
-    if output == MAC_OUTPUT { "Default Mac Output" } else { "HQPlayer" }
+    if output == MAC_OUTPUT { platform::SYSTEM_OUTPUT } else { "HQPlayer" }
 }
 
 fn stop_mac_player(state: &mut crate::State) {
@@ -141,19 +142,26 @@ fn stop_mac_player(state: &mut crate::State) {
 
 fn start_output(state: &Shared, generation: u64, output: &str) -> Result<(), String> {
     if output != MAC_OUTPUT {
-        let source = hqplayer::stream_host(output).map_err(|e| format!("Cannot route stream to {output}: {e}"))?;
-        let _ = hqplayer::stop(output);
-        let uri = format!("http://{source}:8765/live.flac?g={generation}");
-        return hqplayer::play(output, &uri).map_err(|error| error.to_string());
+        #[cfg(target_os = "macos")]
+        {
+            let source = hqplayer::stream_host(output).map_err(|e| format!("Cannot route stream to {output}: {e}"))?;
+            let _ = hqplayer::stop(output);
+            let uri = format!("http://{source}:8765/live.flac?g={generation}");
+            return hqplayer::play(output, &uri).map_err(|error| error.to_string());
+        }
+        #[cfg(not(target_os = "macos"))]
+        return Err("HQPlayer Desktop is unavailable on this platform".into());
     }
 
     let mut s = state.lock().unwrap();
     if s.generation != generation || !s.playing { return Err("Playback request superseded".into()); }
     stop_mac_player(&mut s);
     let uri = format!("http://127.0.0.1:8765/live.flac?g={generation}");
-    let player = Command::new("/opt/homebrew/bin/ffplay")
+    let mut command = Command::new(platform::FFPLAY);
+    #[cfg(target_os = "macos")]
+    command.env("SDL_AUDIODRIVER", "coreaudio");
+    let player = command
         .args(["-hide_banner", "-loglevel", "error", "-nostats", "-nodisp", "-autoexit", "-i", &uri])
-        .env("SDL_AUDIODRIVER", "coreaudio")
         .stdin(std::process::Stdio::null())
         .spawn().map_err(|error| format!("Could not start FFplay. Install FFmpeg with FFplay support: {error}"))?;
     s.mac_player = Some(player);
@@ -170,12 +178,12 @@ fn start_output(state: &Shared, generation: u64, output: &str) -> Result<(), Str
             Ok(Some(_)) => {
                 s.mac_player = None;
                 drop(s);
-                record_failure(&shared, generation, "Mac audio player exited".into());
+                record_failure(&shared, generation, "System audio player exited".into());
             }
             Err(error) => {
                 stop_mac_player(&mut s);
                 drop(s);
-                record_failure(&shared, generation, format!("Mac audio player: {error}"));
+                record_failure(&shared, generation, format!("System audio player: {error}"));
             }
         }
         return;
@@ -191,7 +199,7 @@ fn preflight(station: &Station) -> Result<(), String> {
     use std::time::Instant;
     let temp_path=format!("/tmp/pete-radio-preflight-{}-{}.flac",std::process::id(),station.name.replace(' ',"_"));
     let _=std::fs::remove_file(&temp_path);
-    let mut child=Command::new("/opt/homebrew/bin/ffmpeg")
+    let mut child=Command::new(crate::platform::FFMPEG)
         .args(["-hide_banner","-loglevel","error","-t","1","-i",&station.source_url,
                "-map","0:a:0","-vn","-c:a","flac","-sample_fmt","s16","-f","flac","-y",&temp_path])
         .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
@@ -218,7 +226,7 @@ fn preflight(station: &Station) -> Result<(), String> {
 }
 
 pub fn stop(state: &Shared) -> Result<(),String> {
-    let (generation, output, was_playing) = {
+    let (generation, _output, _was_playing) = {
         let mut s = state.lock().unwrap();
         let was_playing = s.playing;
         s.generation += 1;
@@ -230,11 +238,14 @@ pub fn stop(state: &Shared) -> Result<(),String> {
         stop_mac_player(&mut s);
         (s.generation, s.hq_host.clone(), was_playing)
     };
-    let result = if output != MAC_OUTPUT && was_playing {
-        hqplayer::stop(&output).map_err(|e| e.to_string())
+    #[cfg(target_os = "macos")]
+    let result = if _output != MAC_OUTPUT && _was_playing {
+        hqplayer::stop(&_output).map_err(|e| e.to_string())
     } else {
         Ok(())
     };
+    #[cfg(not(target_os = "macos"))]
+    let result: Result<(), String> = Ok(());
     let mut s = state.lock().unwrap();
     if s.generation == generation {
         s.phase = if result.is_ok() { "idle" } else { "error" }.into();
@@ -247,12 +258,15 @@ pub fn stop(state: &Shared) -> Result<(),String> {
 }
 
 fn select_hq(state:&Shared,host:&str)->Result<(),String>{
+    #[cfg(not(target_os = "macos"))]
+    if host != MAC_OUTPUT { return Err("HQPlayer Desktop is unavailable on this platform".into()); }
+    #[cfg(target_os = "macos")]
     if host != MAC_OUTPUT {
         if host.is_empty() || host.len()>255 || !host.chars().all(|c|c.is_ascii_alphanumeric()||c=='.'||c=='-') {return Err("Invalid HQPlayer host".into());}
         if !hqplayer::reachable(host) {return Err(format!("HQPlayer control port unreachable at {host}:4321"));}
         if hqplayer::info(host).is_none() {return Err(format!("HQPlayer control handshake failed at {host}"));}
     }
-    let (generation, old, was_playing) = {
+    let (generation, _old, _was_playing) = {
         let mut s = state.lock().unwrap();
         if s.hq_host == host { return Ok(()); }
         let was_playing = s.playing;
@@ -264,12 +278,13 @@ fn select_hq(state:&Shared,host:&str)->Result<(),String>{
         stop_mac_player(&mut s);
         (s.generation, s.hq_host.clone(), was_playing)
     };
-    if old != MAC_OUTPUT && was_playing { let _ = hqplayer::stop(&old); }
+    #[cfg(target_os = "macos")]
+    if _old != MAC_OUTPUT && _was_playing { let _ = hqplayer::stop(&_old); }
     let mut s = state.lock().unwrap();
     if s.generation != generation { return Err("Output selection superseded".into()); }
     s.hq_host = host.into();
     s.phase = "idle".into();
-    s.message = if host == MAC_OUTPUT { "Default Mac Output selected".into() } else { format!("HQPlayer selected: {host}") };
+    s.message = if host == MAC_OUTPUT { format!("{} selected", platform::SYSTEM_OUTPUT) } else { format!("HQPlayer selected: {host}") };
     if host != MAC_OUTPUT && !s.hq_targets.iter().any(|(h,_)|h==host){s.hq_targets.push((host.into(),format!("{} · manually added",host)));}
     Ok(())
 }
@@ -279,7 +294,7 @@ fn search(term: &str) -> Result<Vec<Value>,String> {
     // Radio Browser is federated; try several mirrors instead of relying on one.
     for host in ["de1.api.radio-browser.info","nl1.api.radio-browser.info","at1.api.radio-browser.info"] {
         let url=format!("https://{host}/json/stations/search?name={encoded}&limit=40&hidebroken=true&order=votes&reverse=true");
-        let output=Command::new("/usr/bin/curl").args(["-fLsS","--connect-timeout","4","--max-time","9","-A",concat!("RadioKing/", env!("CARGO_PKG_VERSION")),&url]).output();
+        let output=Command::new(crate::platform::CURL).args(["-fLsS","--connect-timeout","4","--max-time","9","-A",concat!("RadioKing/", env!("CARGO_PKG_VERSION")),&url]).output();
         if let Ok(o)=output {
             if o.status.success() {
                 if let Ok(Value::Array(items))=serde_json::from_slice::<Value>(&o.stdout) {
@@ -328,6 +343,7 @@ fn handle(mut socket: TcpStream, state: Shared) -> io::Result<()> {
         let host=param(path,"host").unwrap_or_default();
         return json_reply(socket,match select_hq(&state,&host){Ok(())=>json!({"ok":true}),Err(e)=>json!({"ok":false,"error":e})});
     }
+    #[cfg(target_os = "macos")]
     if method=="POST" && path=="/api/hq/refresh" {
         let shared=state.clone();
         thread::spawn(move || {let targets=hqplayer::discover();let mut s=shared.lock().unwrap();s.hq_targets=targets;});
@@ -353,8 +369,8 @@ fn handle(mut socket: TcpStream, state: Shared) -> io::Result<()> {
         let use_rewind=param(path,"mode").as_deref()==Some("rewind");
         let requested_delay=match param(path,"delay") {
             Some(value) => match value.parse::<i64>() {
-                Ok(delay) if use_rewind && delay > 0 => Some(delay),
-                _ => return json_reply(socket,json!({"ok":false,"error":"Enter a positive rewind delay in seconds"})),
+                Ok(delay) if use_rewind && (1..=86_400).contains(&delay) => Some(delay),
+                _ => return json_reply(socket,json!({"ok":false,"error":"Enter a rewind delay from 1 second to 24 hours"})),
             },
             None => None,
         };
