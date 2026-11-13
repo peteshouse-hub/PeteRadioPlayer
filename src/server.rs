@@ -291,30 +291,34 @@ fn select_hq(state:&Shared,host:&str)->Result<(),String>{
     if host != MAC_OUTPUT && !s.hq_targets.iter().any(|(h,_)|h==host){s.hq_targets.push((host.into(),format!("{} · manually added",host)));}
     Ok(())
 }
-fn search(term: &str) -> Result<Vec<Value>,String> {
-    if term.trim().len()<2 {return Err("Enter at least two characters".into());}
-    let encoded: String=term.bytes().map(|b| if b.is_ascii_alphanumeric(){(b as char).to_string()}else{format!("%{b:02X}")}).collect();
-    // Radio Browser is federated; try several mirrors instead of relying on one.
-    for host in ["de1.api.radio-browser.info","nl1.api.radio-browser.info","at1.api.radio-browser.info"] {
-        let url=format!("https://{host}/json/stations/search?name={encoded}&limit=40&hidebroken=true&order=votes&reverse=true");
+fn directory(path: &str) -> Result<Vec<Value>, String> {
+    for host in ["de1.api.radio-browser.info", "nl1.api.radio-browser.info", "at1.api.radio-browser.info"] {
+        let url = format!("https://{host}/json/{path}");
         let output=Command::new(crate::platform::CURL).args(["-fLsS","--connect-timeout","4","--max-time","9","-A",concat!("RadioKing/", env!("CARGO_PKG_VERSION")),&url]).output();
         if let Ok(o)=output {
             if o.status.success() {
                 if let Ok(Value::Array(items))=serde_json::from_slice::<Value>(&o.stdout) {
-                    return Ok(items.into_iter().filter_map(|v| {
-                        let url=v.get("url_resolved").and_then(Value::as_str).or_else(||v.get("url").and_then(Value::as_str))?;
-                        if !(url.starts_with("http://")||url.starts_with("https://")){return None;}
-                        Some(json!({"name":v.get("name").and_then(Value::as_str).unwrap_or("Unknown"),
-                            "country":v.get("countrycode").and_then(Value::as_str).unwrap_or(""),
-                            "codec":v.get("codec").and_then(Value::as_str).unwrap_or(""),
-                            "bitrate":v.get("bitrate").and_then(Value::as_i64).unwrap_or(0),"url":url}))
-                    }).collect());
+                    return Ok(items);
                 }
             }
         }
     }
     Err("Global directory unavailable; try again later".into())
 }
+fn directory_stations(filters: &[(&str, &str)]) -> Result<Vec<Value>, String> {
+    let query: String = url::form_urlencoded::Serializer::new(String::new())
+        .extend_pairs(filters.iter().copied()).finish();
+    let items = directory(&format!("stations/search?{query}&tagExact=true&languageExact=true&limit=40&hidebroken=true&order=votes&reverse=true"))?;
+    Ok(items.into_iter().filter_map(|v| {
+        let url=v.get("url_resolved").and_then(Value::as_str).or_else(||v.get("url").and_then(Value::as_str))?;
+        if !(url.starts_with("http://")||url.starts_with("https://")){return None;}
+        Some(json!({"name":v.get("name").and_then(Value::as_str).unwrap_or("Unknown"),
+            "country":v.get("countrycode").and_then(Value::as_str).unwrap_or(""),
+            "codec":v.get("codec").and_then(Value::as_str).unwrap_or(""),
+            "bitrate":v.get("bitrate").and_then(Value::as_i64).unwrap_or(0),"url":url,"rewind":crate::station::directory_rewind_url(url).is_some()}))
+    }).collect())
+}
+
 fn handle(mut socket: TcpStream, state: Shared) -> io::Result<()> {
     // Preserve the crucial 0.2.1 fix: accepted sockets MUST be blocking.
     socket.set_nonblocking(false)?;
@@ -382,9 +386,44 @@ fn handle(mut socket: TcpStream, state: Shared) -> io::Result<()> {
     if method=="POST" && path.starts_with("/api/stop") {
         return json_reply(socket,match stop(&state){Ok(())=>json!({"ok":true}),Err(e)=>json!({"ok":false,"error":e})});
     }
+    if method == "GET" && path.split('?').next() == Some("/api/browse") {
+        let kind = param(path, "kind").unwrap_or_default();
+        let (list, key, field) = match kind.as_str() {
+            "genre" => ("tags", "name", "tag"),
+            "region" => ("countries", "iso_3166_1", "countrycode"),
+            "language" => ("languages", "name", "language"),
+            _ => return json_reply(socket, json!({"ok":false,"error":"Unknown browse category"})),
+        };
+        let response = match param(path, "value").filter(|value| !value.is_empty()) {
+            Some(value) => {
+                let filter = param(path, "name").unwrap_or_default();
+                let mut filters = vec![(field, value.as_str())];
+                if !filter.trim().is_empty() {
+                    filters.push(("name", filter.trim()));
+                }
+                directory_stations(&filters).map(|stations| json!({"ok":true,"stations":stations}))
+            }
+            None => directory(&format!("{list}?hidebroken=true&order=stationcount&reverse=true&limit=250"))
+                .map(|items| {
+                    let options: Vec<_> = items.iter().filter_map(|item| {
+                        let name = item["name"].as_str()?.trim();
+                        let value = item[key].as_str()?.trim();
+                        if name.is_empty() || value.is_empty() { return None; }
+                        Some(json!({"name":name,"value":value}))
+                    }).collect();
+                    json!({"ok":true,"options":options})
+                }),
+        };
+        return json_reply(socket, response.unwrap_or_else(|error| json!({"ok":false,"error":error})));
+    }
     if method=="GET" && path.starts_with("/api/search") {
         let term=param(path,"q").unwrap_or_default();
-        return json_reply(socket,match search(&term){Ok(items)=>json!({"ok":true,"stations":items}),Err(e)=>json!({"ok":false,"error":e})});
+        let result = if term.trim().len() < 2 {
+            Err("Enter at least two characters".into())
+        } else {
+            directory_stations(&[("name", term.trim())])
+        };
+        return json_reply(socket,match result{Ok(items)=>json!({"ok":true,"stations":items}),Err(e)=>json!({"ok":false,"error":e})});
     }
     if method=="POST" && path.starts_with("/api/add") {
         let name=param(path,"name").unwrap_or_default();
@@ -392,7 +431,17 @@ fn handle(mut socket: TcpStream, state: Shared) -> io::Result<()> {
         if name.trim().is_empty() || !(url.starts_with("https://")||url.starts_with("http://")) || url.len()>2048 {
             return json_reply(socket,json!({"ok":false,"error":"Invalid station name or stream URL"}));
         }
-        let id={let mut s=state.lock().unwrap();let id=s.stations.len();s.stations.push(Station{name,source_url:url,group:"World".into(),rewind_url:None});id};
+        let rewind_url = crate::station::directory_rewind_url(&url);
+        let id = {
+            let mut s = state.lock().unwrap();
+            if let Some(id) = s.stations.iter().position(|station| station.source_url == url && station.name == name) {
+                id
+            } else {
+                let id = s.stations.len();
+                s.stations.push(Station { name, source_url: url, group: "World".into(), rewind_url });
+                id
+            }
+        };
         return json_reply(socket,json!({"ok":true,"id":id}));
     }
     reply(socket,"404 Not Found","text/plain",b"Not found")

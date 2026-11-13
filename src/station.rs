@@ -25,3 +25,59 @@ pub fn bbc() -> Vec<Station> {
         rewind_url: Some(url.replacen("http:", "https:", 1).replace(".norewind.m3u8", ".m3u8")),
     }).collect()
 }
+
+pub fn directory_rewind_url(source: &str) -> Option<String> {
+    let mut url = url::Url::parse(source).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || !url.username().is_empty()
+        || url.password().is_some() || url.port().is_some()
+    {
+        return None;
+    }
+    let path = url.path();
+    match url.host_str()? {
+        // The directory lists a BBC master playlist for Tees. Use the verified
+        // worldwide media playlist directly for rewind.
+        "a.files.bbci.co.uk" if path.contains("/audio/simulcast/hls/")
+            && path.ends_with("/bbc_tees.m3u8") =>
+        {
+            Some("https://as-hls-ww-live.akamaized.net/pool_08918172/live/ww/bbc_tees/bbc_tees.isml/bbc_tees-audio%3d96000.m3u8".into())
+        }
+        "as-hls-ww-live.akamaized.net" | "as-hls-uk-live.akamaized.net" => {
+            let (_, stream) = path.split_once("/live/")?;
+            let mut parts = stream.split('/');
+            if !matches!(parts.next()?, "ww" | "uk") { return None; }
+            let service = parts.next()?;
+            let file = parts.next()?;
+            if !service.starts_with("bbc_")
+                || file != format!("{service}.isml")
+                || !parts.next()?.starts_with(&format!("{service}-audio"))
+                || parts.next().is_some()
+                || !path.ends_with(".m3u8")
+            {
+                return None;
+            }
+            let rewind = path.replace(".norewind.m3u8", ".m3u8");
+            url.set_path(&rewind);
+            url.set_scheme("https").ok()?;
+            url.set_fragment(None);
+            Some(url.into())
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_bbc_streams_by_url() {
+        let tees = "https://a.files.bbci.co.uk/ms6/live/id/audio/simulcast/hls/nonuk/aks/bbc_tees.m3u8";
+        let rewind = directory_rewind_url(tees).unwrap();
+        assert!(rewind.contains("pool_08918172"));
+        assert_eq!(directory_rewind_url(&rewind).as_deref(), Some(rewind.as_str()));
+        let live = rewind.replace(".m3u8", ".norewind.m3u8");
+        assert_eq!(directory_rewind_url(&live).as_deref(), Some(rewind.as_str()));
+        assert!(directory_rewind_url("https://example.org/bbc_tees.m3u8").is_none());
+    }
+}

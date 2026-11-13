@@ -4,8 +4,9 @@
 #shiftControls{border:0;padding:0;margin:16px 0 0;min-width:0}#shiftControls legend{font-weight:600;padding:0}#shiftRange{display:block;width:100%;margin:10px 0;accent-color:#70b5ff}.shift-endpoints{display:flex;justify-content:space-between;margin-bottom:10px}.shift-steps{display:flex;gap:6px;flex-wrap:wrap}#shiftLimit{display:block;margin-top:8px}
 [hidden]{display:none!important}
 #streamStats{margin:12px 0}#streamStats:not([hidden]){display:grid;gap:8px}#streamStats dt{font-size:.8rem;color:#a7b9c7}#streamStats dd{margin:2px 0 0}
-</style></head><body><div class="app"><header><h1>Radio<span>King</span></h1></header><div class="hqbar"><label for="hq">Output</label><select id="hq" onchange="selectHQ()"><option value="">Select output</option><option value="@mac">Default Mac Output</option></select><button id="refreshHQ" onclick="refreshHQ()">↻ Discover</button><input id="manualHQ" style="width:170px;margin:0;padding:9px" placeholder="Host / IPv4 address"><button id="addHQ" onclick="manualHQ()">Connect</button><small id="hqInfo">Searching local network…</small><div class="hqtip"><strong>Tip:</strong> To use HQPlayer Desktop on another computer, enable <strong>Allow control from network</strong> in HQPlayer Desktop.</div></div><div class="layout"><section class="panel now"><div><div class="eyebrow">Now tuned to</div><h2 id="current">BBC Radio 4</h2><div class="phase" id="phase">Idle</div><div class="status" id="status" role="status" aria-live="polite">Ready</div><small id="bytes"></small><dl id="streamStats" hidden><div><dt>Source stream</dt><dd id="sourceStats"></dd></div><div><dt>RadioKing output</dt><dd id="outputStats"></dd></div></dl><dl id="clocks" hidden><div><dt>Toronto time</dt><dd id="torontoTime"></dd></div><div><dt>London programme</dt><dd id="londonTime"></dd></div><div><dt>Time shift</dt><dd id="timeShift"></dd></div></dl><fieldset id="shiftControls" hidden><legend>Time shift</legend><label for="shiftRange">Delay behind live <output id="shiftValue" for="shiftRange"></output></label><input id="shiftRange" type="range" min="0" max="0" step="1" oninput="showShiftValue()" onchange="applyShift(sliderDelay())"><div class="shift-endpoints" aria-hidden="true"><small id="shiftOldest">Available rewind</small><small>Live broadcast</small></div><div class="shift-steps"><button onclick="stepShift(300)">Back 5 min</button><button onclick="stepShift(60)">Back 1 min</button><button onclick="stepShift(-60)">Forward 1 min</button><button onclick="stepShift(-300)">Forward 5 min</button></div><small id="shiftLimit"></small><small id="shiftFeedback" role="status"></small></fieldset></div><div class="controls"><button id="playBtn" class="primary" onclick="playSelected()">▶ Play</button><button id="stopBtn" onclick="stop()">■ Stop</button></div></section><section class="panel"><h2>BBC Radio</h2><div class="hint">International (ww) BBC streams are preferred. Radio 4 is verified; other services may still be unavailable or geographically restricted.</div><div id="stations"></div></section><section class="panel"><h2>Explore the world</h2><div class="hint">Search the community-maintained Radio Browser directory by station name. Results depend on the station's current stream availability.</div><div style="display:flex;gap:8px;margin-top:15px"><input id="search" placeholder="Station, genre or broadcaster…" onkeydown="if(event.key==='Enter')search()"><button id="searchBtn" onclick="search()" style="height:43px">Search</button></div><div id="results" class="hint">Try “SomaFM”, “Jazz”, “France”, or “Radio Paradise”.</div></section></div><footer>Rust audio engine · local-only interface · FFmpeg lossless FLAC bridge · HQPlayer → NAA<br>Automatic recovery: up to three retries with backoff. Station availability and geographic restrictions vary.</footer></div><script>
-let state=null;let busy=false;let searching=false;let selecting=false;
+.browse-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0}.browse-controls select{max-width:100%}
+</style></head><body><div class="app"><header><h1>Radio<span>King</span></h1></header><div class="hqbar"><label for="hq">Output</label><select id="hq" onchange="selectHQ()"><option value="">Select output</option><option value="@mac">Default Mac Output</option></select><button id="refreshHQ" onclick="refreshHQ()">↻ Discover</button><input id="manualHQ" style="width:170px;margin:0;padding:9px" placeholder="Host / IPv4 address"><button id="addHQ" onclick="manualHQ()">Connect</button><small id="hqInfo">Searching local network…</small><div class="hqtip"><strong>Tip:</strong> To use HQPlayer Desktop on another computer, enable <strong>Allow control from network</strong> in HQPlayer Desktop.</div></div><div class="layout"><section class="panel now"><div><div class="eyebrow">Now tuned to</div><h2 id="current">BBC Radio 4</h2><div class="phase" id="phase">Idle</div><div class="status" id="status" role="status" aria-live="polite">Ready</div><small id="bytes"></small><dl id="streamStats" hidden><div><dt>Source stream</dt><dd id="sourceStats"></dd></div><div><dt>RadioKing output</dt><dd id="outputStats"></dd></div></dl><dl id="clocks" hidden><div><dt>Toronto time</dt><dd id="torontoTime"></dd></div><div><dt>London programme</dt><dd id="londonTime"></dd></div><div><dt>Time shift</dt><dd id="timeShift"></dd></div></dl><fieldset id="shiftControls" hidden><legend>Time shift</legend><label for="shiftRange">Delay behind live <output id="shiftValue" for="shiftRange"></output></label><input id="shiftRange" type="range" min="0" max="0" step="1" oninput="showShiftValue()" onchange="applyShift(sliderDelay())"><div class="shift-endpoints" aria-hidden="true"><small id="shiftOldest">Available rewind</small><small>Live broadcast</small></div><div class="shift-steps"><button onclick="stepShift(300)">Back 5 min</button><button onclick="stepShift(60)">Back 1 min</button><button onclick="stepShift(-60)">Forward 1 min</button><button onclick="stepShift(-300)">Forward 5 min</button></div><small id="shiftLimit"></small><small id="shiftFeedback" role="status"></small></fieldset></div><div class="controls"><button id="playBtn" class="primary" onclick="playSelected()">▶ Play</button><button id="stopBtn" onclick="stop()">■ Stop</button></div></section><section class="panel"><h2>BBC Radio</h2><div class="hint">International (ww) BBC streams are preferred. Radio 4 is verified; other services may still be unavailable or geographically restricted.</div><div id="stations"></div></section><section class="panel"><h2>Explore the world</h2><div class="hint">Search the community-maintained Radio Browser directory by station name. Results depend on the station's current stream availability.</div><div style="display:flex;gap:8px;margin-top:15px"><input id="search" placeholder="Station, genre or broadcaster…" onkeydown="if(event.key==='Enter')search()"><button id="searchBtn" onclick="search()" style="height:43px">Search</button></div><div class="browse-controls"><label for="browseKind">Browse by</label><select id="browseKind" onchange="loadBrowseOptions()"><option value="">Choose a category</option><option value="genre">Genre</option><option value="region">Country or region</option><option value="language">Language</option></select><select id="browseValue" aria-label="Browse selection" onchange="selectBrowseValue()" disabled><option value="">Choose a category first</option></select></div><form id="browseFilterForm" class="browse-controls" hidden onsubmit="event.preventDefault();browseStations()"><label for="browseFilter">Filter by station name</label><input id="browseFilter" type="search" maxlength="120" placeholder="e.g. Capital"><button type="submit">Filter</button></form><div id="results" class="hint" aria-live="polite">Try “SomaFM”, “Jazz”, “France”, or “Radio Paradise”.</div></section></div><footer>Rust audio engine · local-only interface · FFmpeg lossless FLAC bridge · HQPlayer → NAA<br>Automatic recovery: up to three retries with backoff. Station availability and geographic restrictions vary.</footer></div><script>
+let state=null;let busy=false;let directoryRequest=0;let browseOptionsRequest=0;let selecting=false;
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function api(path,method='GET'){let r=await fetch(path,{method,cache:'no-store'});return await r.json()}
 async function refresh(){try{state=await api('/api/status');let st=state.stations[state.selected];document.getElementById('current').textContent=st?.name||'None';
@@ -81,7 +82,88 @@ async function selectHQ(){if(selecting)return;let host=document.getElementById('
 async function manualHQ(){let host=document.getElementById('manualHQ').value.trim();if(!host)return;await changeHQ(host)}
 async function changeHQ(host){selecting=true;document.getElementById('hqInfo').textContent=host==='@mac'?'Selecting system output…':'Connecting to '+host+'…';document.getElementById('hq').disabled=true;try{let x=await api('/api/hq/select?host='+encodeURIComponent(host),'POST');if(!x.ok)showError(x.error)}catch(e){showError(e.message)}finally{selecting=false;document.getElementById('hq').disabled=false;await refresh()}}
 async function refreshHQ(){let btn=document.getElementById('refreshHQ');btn.disabled=true;btn.textContent='◌ Discovering…';try{let x=await api('/api/hq/refresh','POST');if(!x.ok)showError(x.error);setTimeout(refresh,2000)}catch(e){showError(e.message)}finally{setTimeout(()=>{btn.disabled=false;btn.textContent='↻ Discover'},1800)}}
-async function search(){if(searching)return;let q=document.getElementById('search').value.trim();if(q.length<2)return;searching=true;let btn=document.getElementById('searchBtn');btn.disabled=true;btn.textContent='◌ Searching…';let box=document.getElementById('results');box.textContent='Searching worldwide stations…';try{let x=await api('/api/search?q='+encodeURIComponent(q));if(!x.ok){box.textContent=x.error;return}if(!x.stations.length){box.textContent='No results';return}box.innerHTML=x.stations.map((s,i)=>`<div class="result"><div><strong>${esc(s.name)}</strong><small>${esc(s.country)} · ${esc(s.codec)} ${s.bitrate?esc(s.bitrate)+' kbps':''}</small></div><button data-index="${i}">Tune</button></div>`).join('');box.querySelectorAll('button').forEach(b=>b.onclick=async()=>{let s=x.stations[Number(b.dataset.index)];b.disabled=true;b.textContent='◌ Tuning…';try{let a=await api('/api/add?name='+encodeURIComponent(s.name)+'&url='+encodeURIComponent(s.url),'POST');if(!a.ok){showError(a.error);return}await play(a.id)}finally{b.disabled=false;b.textContent='Tune'}});}catch(e){box.textContent='Directory error: '+e.message}finally{searching=false;btn.disabled=false;btn.textContent='Search'}}
+async function showStations(path, loading) {
+  const request = ++directoryRequest;
+  const box = document.getElementById('results');
+  box.textContent = loading;
+  try {
+    const result = await api(path);
+    if (request !== directoryRequest) return;
+    if (!result.ok) { box.textContent = result.error; return; }
+    if (!result.stations.length) { box.textContent = 'No stations found.'; return; }
+    box.innerHTML = result.stations.map((station, index) => `<div class="result"><div><strong>${esc(station.name)}</strong><small>${esc(station.country)} · ${esc(station.codec)} ${station.bitrate ? esc(station.bitrate)+' kbps' : ''}</small></div><div class="station-actions"><button data-index="${index}">Tune</button>${station.rewind?`<button data-index="${index}" data-mode="rewind">Rewind</button>`: ''}</div></div>`).join('');
+    box.querySelectorAll('button').forEach(button => button.onclick = async () => {
+      const station = result.stations[Number(button.dataset.index)];
+      const label = button.textContent;
+      button.disabled = true;
+      button.textContent = '◌ Tuning…';
+      try {
+        const added = await api('/api/add?name='+encodeURIComponent(station.name)+'&url='+encodeURIComponent(station.url),'POST');
+        if (added.ok) await play(added.id, button.dataset.mode ?? "live");
+        else showError(added.error);
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = label;
+      }
+    });
+  } catch (error) {
+    if (request === directoryRequest) box.textContent = 'Directory error: '+error.message;
+  }
+}
+function search() {
+  const term = document.getElementById('search').value.trim();
+  if (term.length < 2) return;
+  document.getElementById('browseFilterForm').hidden = true;
+  document.getElementById('browseValue').value = '';
+  return showStations('/api/search?q='+encodeURIComponent(term), 'Searching worldwide stations…');
+}
+async function loadBrowseOptions() {
+  const request = ++browseOptionsRequest;
+  ++directoryRequest;
+  document.getElementById('browseFilterForm').hidden = true;
+  document.getElementById('browseFilter').value = '';
+  const kind = document.getElementById('browseKind').value;
+  const selector = document.getElementById('browseValue');
+  selector.disabled = true;
+  selector.replaceChildren(new Option(kind ? 'Loading…' : 'Choose a category first', ''));
+  document.getElementById('results').textContent = kind ? 'Loading categories…' : '';
+  if (!kind) return;
+  const results = directoryRequest;
+  try {
+    const result = await api('/api/browse?kind='+encodeURIComponent(kind));
+    if (request !== browseOptionsRequest) return;
+    if (!result.ok) throw Error(result.error);
+    result.options.sort((a,b) => a.name.localeCompare(b.name));
+    selector.replaceChildren(new Option('Choose '+({genre:'a genre',region:'a country or region',language:'a language'}[kind]), ''),
+      ...result.options.map(option => new Option(option.name, option.value)));
+    selector.disabled = !result.options.length;
+    if (results === directoryRequest) document.getElementById('results').textContent =
+      result.options.length ? 'Choose an option to see stations.' : 'No categories found.';
+  } catch (error) {
+    if (request !== browseOptionsRequest) return;
+    selector.replaceChildren(new Option('Could not load options', ''));
+    if (results === directoryRequest) document.getElementById('results').textContent = error.message;
+  }
+}
+function selectBrowseValue() {
+  document.getElementById('browseFilter').value = '';
+  const selected = document.getElementById('browseValue').value;
+  document.getElementById('browseFilterForm').hidden = !selected;
+  if (selected) return browseStations();
+  ++directoryRequest;
+  document.getElementById('results').textContent = 'Choose an option to see stations.';
+}
+function browseStations() {
+  const kind = document.getElementById('browseKind').value;
+  const value = document.getElementById('browseValue').value;
+  const name = document.getElementById('browseFilter').value.trim();
+  if (kind && value) {
+    const query = new URLSearchParams({kind, value, name});
+    return showStations('/api/browse?'+query, 'Finding stations…');
+  }
+}
 const shiftRange=document.getElementById('shiftRange');
 const shiftControls=document.getElementById('shiftControls');
 const shiftLimit=document.getElementById('shiftLimit');
@@ -188,8 +270,8 @@ function updateStreamStats(){
 
 function updateClocks() {
   const station = state?.stations[state.selected];
-  document.getElementById('clocks').hidden = station?.group !== 'BBC';
-  if (station?.group !== 'BBC') return;
+  document.getElementById('clocks').hidden = !station?.rewind;
+  if (!station?.rewind) return;
   const now = Date.now();
   const delay = state.rewind_delay ?? 0;
   document.getElementById('torontoTime').textContent = torontoClock.format(now);
