@@ -2,7 +2,7 @@
 
 A lightweight, local macOS radio interface that streams BBC and worldwide radio through **HQPlayer Desktop**, using FFmpeg to decode incoming audio into lossless FLAC over localhost HTTP.
 
-**Development build:** v0.4.0-alpha.12. Previous stable release: PeteRadioPlayer v0.3.2.
+**Development build:** v0.4.0-alpha.13. Previous stable release: PeteRadioPlayer v0.3.2.
 
 ## Features
 
@@ -36,6 +36,23 @@ CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
   cargo build --release --locked --target x86_64-unknown-linux-musl
 cargo generate-rpm --target x86_64-unknown-linux-musl --metadata-overwrite packaging/fedora/rpm.toml
 ```
+
+## Debian packages
+
+Build for Debian amd64 (64-bit Intel/AMD) or arm64 (64-bit ARM) with Python 3
+and the Rust toolchain. Install the
+corresponding Rust target with `rustup target add x86_64-unknown-linux-musl`
+or `rustup target add aarch64-unknown-linux-musl`, then run:
+
+```sh
+./packaging/debian/build.sh amd64
+./packaging/debian/build.sh arm64
+```
+
+The script writes a `.deb` to `target/`. On Debian or DietPi, install the
+package for your architecture with `sudo apt install ./<filename>.deb`.
+APT installs FFmpeg (including FFplay), curl, and CA certificates. Launch
+RadioKing from the desktop menu or run `radio-king` in a terminal.
 
 ## Linux
 
