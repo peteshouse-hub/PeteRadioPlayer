@@ -1,0 +1,4 @@
+build/
+# Copy these board drivers from the Waveshare V2 examples before building.
+/RadioKing/Touch_CST3530.cpp
+/RadioKing/Touch_CST3530.h
