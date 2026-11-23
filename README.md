@@ -14,6 +14,8 @@ The three preset pages follow all 12 international BBC live stations and their o
 6. Tap **Setup** to view the current Wi-Fi connection or choose **Change Wi-Fi**. Open **Orientation** and choose **Auto**, **Portrait up**, **Portrait down**, **Landscape up**, or **Landscape down**. The setting persists across restarts. Auto follows the board after a short pause.
 7. In **Setup**, tap **Audio** to switch between stereo and mono. Stereo is the default. Tap **Dim level** to cycle through 10%, 25%, 50%, 75%, and 100%. The screen dims after five minutes without a touch, and the first tap restores full brightness. Select 100% to keep the screen at full brightness. Both settings persist across restarts.
 
+The main screen shows BBC programme and episode information when available, including during rewind. Other stations can supply a track or show title through the stream. Long labels scroll within their own controls.
+
 Station availability depends on the broadcaster and network. Search and rewind use HTTPS and need the board’s clock to synchronize after connecting to Wi-Fi. Rewind supports the 12 BBC presets and recognized BBC media URLs from search, including BBC Radio Tees. The firmware decodes audio to PCM for the speaker.
 
 ## Build and upload
@@ -40,3 +42,5 @@ Use the serial port reported by `arduino-cli board list` if it changes. A serial
 Flash the release’s merged image at address `0x0` on the Waveshare Rev1.1 / V2. A merged image covers the entire flash and resets saved Wi-Fi and orientation settings. Use the Arduino upload command above to update just the firmware partitions.
 
 This repository’s RadioKing source is MIT-licensed. The combined firmware includes the GPLv3 ESP32-audioI2S library from the Waveshare archive and is distributed under GPLv3. The build instructions identify the corresponding source and build settings. The Arduino ESP32 core is available from [Espressif](https://github.com/espressif/arduino-esp32/tree/3.3.13). The graphics and JSON libraries are available from the Arduino library registry at the versions listed above.
+
+The embedded DejaVu Sans glyphs retain their [font license](RadioKing/fonts/LICENSE-DejaVu.txt).

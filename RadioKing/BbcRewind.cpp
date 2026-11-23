@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include "BbcTrust.h"
+#include "BroadcastTime.h"
 
 namespace BbcRewind {
 namespace {
@@ -23,6 +24,7 @@ struct Session {
 };
 std::atomic<unsigned> generation{0};
 std::atomic<unsigned> window{0};
+std::atomic<uint32_t> playbackStart{0};
 std::atomic<Status> state{Status::Idle};
 std::atomic<bool> workerRunning{false};
 
@@ -59,6 +61,7 @@ public:
   unsigned count = 0;
   unsigned target = 0;
   uint32_t durationMs = 0;
+  time_t timestamp = 0;
   String base;
 
   template <typename Visitor>
@@ -79,6 +82,8 @@ public:
         haveSequence = true;
       } else if (strncmp(line, "#EXT-X-TARGETDURATION:", 22) == 0) {
         target = strtoul(line + 22, nullptr, 10);
+      } else if (index == 0 && strncmp(line, "#EXT-X-PROGRAM-DATE-TIME:", 25) == 0) {
+        timestamp = bbcUtcTime(line + 25);
       } else if (strncmp(line, "#EXT-X-KEY:", 11) == 0 ||
                  strncmp(line, "#EXT-X-BYTERANGE:", 17) == 0 ||
                  strncmp(line, "#EXT-X-MAP:", 11) == 0 ||
@@ -132,11 +137,14 @@ public:
     });
   }
 
-  uint64_t seek(uint32_t milliseconds) {
+  uint64_t seek(uint32_t milliseconds, uint32_t& start) {
     unsigned selected = 0;
     uint32_t elapsed = 0;
     visit([&](unsigned index, const Segment& segment) {
-      if (elapsed <= milliseconds) selected = index;
+      if (elapsed <= milliseconds) {
+        selected = index;
+        if (timestamp) start = timestamp + elapsed / 1000;
+      }
       elapsed += lround(segment.duration * 1000);
     });
     return first + selected;
@@ -183,7 +191,9 @@ void runSession(const Session& session) {
     return;
   }
 
-  uint64_t next = playlist.seek(playlist.durationMs - delayMs);
+  uint32_t timestamp = 0;
+  uint64_t next = playlist.seek(playlist.durationMs - delayMs, timestamp);
+  playbackStart.store(timestamp);
   const uint64_t initial = next;
   NetworkServer server(IPAddress(127, 0, 0, 1), 8084, 1);
   server.begin();
@@ -270,9 +280,10 @@ String mediaUrl(const String& liveUrl) {
 bool begin(const String& playlistUrl, unsigned minutes) {
   if (playlistUrl.isEmpty() || !minutes || workerRunning.exchange(true)) return false;
   window.store(0);
+  playbackStart.store(0);
   state.store(Status::Loading);
   Session* session = new (std::nothrow) Session{playlistUrl, minutes, ++generation};
-  if (!session || xTaskCreate(task, "BBC rewind", 14336, session, 1, nullptr) != pdPASS) {
+  if (!session || xTaskCreate(task, "BBC rewind", 14336, session, 2, nullptr) != pdPASS) {
     delete session;
     workerRunning.store(false);
     state.store(Status::Unavailable);
@@ -289,4 +300,5 @@ void stop() {
 Status status() { return state.load(); }
 bool running() { return workerRunning.load(); }
 unsigned windowMinutes() { return window.load(); }
+uint32_t startTimestamp() { return playbackStart.load(); }
 }

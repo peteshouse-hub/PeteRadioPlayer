@@ -12,4 +12,5 @@ void stop();
 bool running();
 Status status();
 unsigned windowMinutes();
+uint32_t startTimestamp();
 }
