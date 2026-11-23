@@ -15,6 +15,13 @@
 
 namespace {
 constexpr int Backlight = 5;
+constexpr uint32_t BacklightIdleMs = 5 * 60 * 1000;
+constexpr uint16_t FullBacklightDuty = 1023;
+constexpr uint8_t DimLevels[] = {10, 25, 50, 75, 100};
+constexpr uint8_t DefaultDimIndex = 1;
+constexpr int SetupRowStart = 124;
+constexpr int SetupRowStep = 36;
+constexpr int SetupRowHeight = 32;
 constexpr uint16_t Background = 0x0842;
 constexpr uint16_t Panel = 0x19C9;
 constexpr uint16_t Accent = 0xF5C8;
@@ -109,6 +116,11 @@ uint32_t connectionStarted;
 uint32_t setupClosesAt;
 uint32_t lastDecodedAudio;
 uint32_t lastTouch;
+uint32_t lastTouchActivity;
+uint8_t dimIndex = DefaultDimIndex;
+bool backlightDimmed;
+bool backlightPwm;
+bool monoAudio;
 const char* playbackStatus = "Ready";
 
 int screenX(int x) { return x * screen.width() / 240; }
@@ -207,8 +219,13 @@ void drawSetup() {
   label(12, 52, "Setup", White, 2);
   label(12, 93, WiFi.isConnected() ? "Wi-Fi connected" : "Wi-Fi disconnected", White, 1);
   if (WiFi.isConnected()) label(12, 110, WiFi.SSID().substring(0, 32).c_str(), Accent, 1);
-  button(12, 130, 216, 45, "Change Wi-Fi", false);
-  button(12, 191, 216, 45, "Orientation", false);
+  button(12, SetupRowStart, 216, SetupRowHeight, "Change Wi-Fi", false);
+  button(12, SetupRowStart + SetupRowStep, 216, SetupRowHeight, "Orientation", false);
+  button(12, SetupRowStart + 2 * SetupRowStep, 216, SetupRowHeight,
+         monoAudio ? "Audio: Mono" : "Audio: Stereo", false);
+  char dimLabel[24];
+  snprintf(dimLabel, sizeof(dimLabel), "Dim level: %u%%", DimLevels[dimIndex]);
+  button(12, SetupRowStart + 3 * SetupRowStep, 216, SetupRowHeight, dimLabel, false);
   button(12, FooterY, 98, 36, "Back", false);
 }
 
@@ -544,10 +561,23 @@ void touchRewind(int x, int y) {
 }
 
 void touchSetup(int x, int y) {
-  if (y >= 130 && y < 175) startSetup();
-  else if (y >= 191 && y < 236) view = View::Orientation;
-  else if (x < 110 && y >= FooterY && y < FooterY + 36) {
+  if (x < 110 && y >= FooterY && y < FooterY + 36) {
     view = View::Presets;
+  } else if (y >= SetupRowStart && y < SetupRowStart + 4 * SetupRowStep &&
+             (y - SetupRowStart) % SetupRowStep < SetupRowHeight) {
+    switch ((y - SetupRowStart) / SetupRowStep) {
+      case 0: startSetup(); break;
+      case 1: view = View::Orientation; break;
+      case 2:
+        monoAudio = !monoAudio;
+        audio.forceMono(monoAudio);
+        preferences.putBool("mono", monoAudio);
+        break;
+      case 3:
+        dimIndex = (dimIndex + 1) % sizeof(DimLevels);
+        preferences.putUChar("dimLevel", dimIndex);
+        break;
+    }
   } else {
     return;
   }
@@ -583,6 +613,15 @@ void touchOrientation(int x, int y) {
   dirty = true;
 }
 
+void setBacklightDimmed(bool dimmed) {
+  dimmed = dimmed && DimLevels[dimIndex] < 100;
+  if (!backlightPwm || dimmed == backlightDimmed) return;
+  backlightDimmed = dimmed;
+  const unsigned percent = dimmed ? DimLevels[dimIndex] : 100;
+  ledcWrite(Backlight, FullBacklightDuty * percent / 100);
+  Serial.printf("Backlight: %u%%\n", percent);
+}
+
 void updateTouch() {
   if (!touchReady || millis() - lastTouch < 40) return;
   lastTouch = millis();
@@ -592,6 +631,13 @@ void updateTouch() {
   const bool down = Touch2_Get_XY(&rawX, &rawY, nullptr, &count, 1);
   const bool tapped = down && !pressed;
   pressed = down;
+  if (down) {
+    lastTouchActivity = lastTouch;
+    if (backlightDimmed) {
+      setBacklightDimmed(false);
+      return;
+    }
+  }
   if (!tapped || rawX >= 240 || rawY >= 320) return;
   int x = rawX;
   int y = rawY;
@@ -632,7 +678,10 @@ void setup() {
   screen.init(240, 320);
   screen.setRotation(static_cast<uint8_t>(rotation));
   screen.setTextWrap(false);
-  digitalWrite(Backlight, HIGH);
+  backlightPwm = ledcAttach(Backlight, 20000, 10);
+  if (backlightPwm) ledcWrite(Backlight, FullBacklightDuty);
+  else digitalWrite(Backlight, HIGH);
+  lastTouchActivity = millis();
 
   touchReady = TOUCH2_Init();
   orientationReady = orientationSensor.begin();
@@ -644,6 +693,12 @@ void setup() {
                 static_cast<unsigned>(ESP.getPsramSize()));
   configureSetup();
   preferences.begin("radioking");
+  monoAudio = preferences.getBool("mono", false);
+  audio.forceMono(monoAudio);
+  dimIndex = preferences.getUChar("dimLevel", DefaultDimIndex);
+  if (dimIndex >= sizeof(DimLevels)) dimIndex = DefaultDimIndex;
+  Serial.printf("Audio mode: %s; backlight PWM=%s; dim level=%u%%\n",
+                monoAudio ? "mono" : "stereo", backlightPwm ? "OK" : "unavailable", DimLevels[dimIndex]);
   const uint8_t savedRotation = preferences.getUChar("rotation", AutoRotation);
   autoRotate = savedRotation > 3;
   if (!autoRotate) {
@@ -676,6 +731,7 @@ void loop() {
     if (view == View::Results) dirty = true;
   }
   updateTouch();
+  if (millis() - lastTouchActivity >= BacklightIdleMs) setBacklightDimmed(true);
   updateOrientation();
   if (playing) {
     audio.loop();

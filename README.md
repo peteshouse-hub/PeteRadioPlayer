@@ -12,6 +12,7 @@ The three preset pages follow all 12 international BBC live stations and their o
 4. Tap **Search**, type at least two characters of the station name, and tap **Find**. Select a result just like a preset. **Edit** returns to the keyboard and **BBC** returns to the presets.
 5. For a supported BBC station, tap **Rewind** and set the time behind live in 5- or 30-minute steps. Tap **Listen** to start there or **Live** to return to the live broadcast. The available history comes from the station’s rolling playlist and can vary. The screen shows the window once the board has fetched it.
 6. Tap **Setup** to view the current Wi-Fi connection or choose **Change Wi-Fi**. Open **Orientation** and choose **Auto**, **Portrait up**, **Portrait down**, **Landscape up**, or **Landscape down**. The setting persists across restarts. Auto follows the board after a short pause.
+7. In **Setup**, tap **Audio** to switch between stereo and mono. Stereo is the default. Tap **Dim level** to cycle through 10%, 25%, 50%, 75%, and 100%. The screen dims after five minutes without a touch, and the first tap restores full brightness. Select 100% to keep the screen at full brightness. Both settings persist across restarts.
 
 Station availability depends on the broadcaster and network. Search and rewind use HTTPS and need the board’s clock to synchronize after connecting to Wi-Fi. Rewind supports the 12 BBC presets and recognized BBC media URLs from search, including BBC Radio Tees. The firmware decodes audio to PCM for the speaker.
 
